@@ -47,9 +47,9 @@ def get_sensor_history(sensor_id):
     df = pd.DataFrame.from_dict(data)
 
     #clean the data types
-    df['sender_time'] = df['sender_time'].apply(lambda x: x.replace("%3A", ":"))
+    #df['sender_time'] = df['sender_time'].apply(lambda x: x.replace("%3A", ":"))
     df['sender_time'] = df['sender_time'].apply(
-        lambda x: datetime.datetime.strptime(x, dt_format)
+        lambda x: datetime.datetime.strptime(x.replace("%3A", ":"), dt_format)
     )
     df['value'] = df['value'].astype(float)
 
