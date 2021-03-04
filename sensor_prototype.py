@@ -55,7 +55,9 @@ def get_sensor_history(sensor_id):
 
     #select your sensor
     df = df[df['sensor_id']==sensor_id]
-    print(df['value'])
+    with pd.option_context('display.max_rows', None, 'display.max_columns', None):  # more options can be specified also
+        print(df['value'])
+    #print(df['value'])
 
 if __name__ == "__main__":
     """
@@ -63,8 +65,6 @@ if __name__ == "__main__":
     POST: python sensor_prototype.py abc123 humidity 28
     GET: python sensor_prototype.py abc123
     """
-
-    
     name = sys.argv[1]
     if len(sys.argv) == 2:
         get_sensor_history(name)
