@@ -3,19 +3,18 @@
 #include "DHT.h"
 #include "HTTPClient.h"
 #include "SSD1306Wire.h"
-//#include "images.h"
+#include "time.h"
 
 // PINOUTS
 #define PIN_OLED_SDA 21
 #define PIN_OLED_SCL 22
 #define PIN_DHT11 4
-#define DHTTYPE DHT11
-DHT dht(PIN_DHT11, DHTTYPE);
-
+#define DHTTYPE DHT11 // type of DHT device (DHT 11 comes with amazon weather station)
 #define SCREEN_WIDTH 128 // OLED display width, in pixels
 #define SCREEN_HEIGHT 64 // OLED display height, in pixels
 #define OLED_RESET     -1 // Reset pin # (or -1 if sharing Arduino reset pin)
 
+DHT dht(PIN_DHT11, DHTTYPE);
 SSD1306Wire display(0x3c, SDA, SCL);
 HTTPClient http;
 
@@ -23,12 +22,15 @@ HTTPClient http;
 const char* ssid = "ATT5yX6g8p";
 const char* password =  "35fcs6hyi#yj";
 const char* server = "https://api.is-conic.com/api/v0p1/sensor";
+const char* ntpServer = "pool.ntp.org";
 
 //DEVICE SETTINGS
 const String sensor_name = "Arjun_weather_kit";
 float lat = 35.1222;
 float lon = -121.8431;
 
+//state variables
+unsigned long epochTime;
 
 void setup() {
   /*
@@ -52,6 +54,23 @@ void setup() {
   display.init();
   display.flipScreenVertically();
   display.setFont(ArialMT_Plain_10);
+  //start time
+  configTime(0, 0, ntpServer);
+}
+
+unsigned long getTime() {
+  /*
+   * Get the current time, in epoch time. Returns 0 if unable to obtain time. 
+   * From: https://randomnerdtutorials.com/epoch-unix-time-esp32-arduino/
+   */
+  time_t now;
+  struct tm timeinfo;
+  if (!getLocalTime(&timeinfo)) {
+    Serial.println("Failed to obtain time");
+    return(0);
+  }
+  time(&now);
+  return now;
 }
 
 String post_to_string(float measurement, String unit, bool incl_time, bool incl_location) {
@@ -61,9 +80,11 @@ String post_to_string(float measurement, String unit, bool incl_time, bool incl_
    */
   String json = "{\"key\":\"" + sensor_name + "\",\"unit\":\"" + unit + "\",\"value\":\"" + String(measurement);
   if (incl_time) {
-    time_t now;
-    time(&now);
-    json = json + "\",\"timestamp\":\"" + String(now);
+    //time_t now;
+    unsigned long curr_time = getTime();
+    if (curr_time > 0) {
+      json = json + "\",\"timestamp\":\"" + String(curr_time);
+    }
   }
   if (incl_location) {
     json = json + "\",\"lat\":\"" + String(lat) + "\",\"lon\":\"" + String(lon);    
@@ -97,15 +118,17 @@ void loop() {
     if (isnan(h) || isnan(t)) {
      Serial.println(F("Failed to read from DHT sensor!"));
     } else {
-      Serial.print("Humidity (RF%): ");
-      Serial.println(h);
-      Serial.print("Temperature (C): ");
-      Serial.println(t);
+      //Print readings to the serial
+      Serial.println("Humidity (RF%): " + String(h));
+      Serial.println("Temperature (C): " + String(t));
+      //Post both values separately and report error
       int response_1 = http.POST(post_to_string(t, "Celsius", true, true));
       int response_2 = http.POST(post_to_string(h, "RF%", true, true));
       if ((response_1 != 200) or (response_2 != 200)) {
-        Serial.println("HTTP Post error");        
+        Serial.print("HTTP Post error: ");
+        Serial.println(http.getString()); 
       }
+      //display on OLED
       display_readings(h, t);
     }
   }

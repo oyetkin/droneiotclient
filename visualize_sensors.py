@@ -48,22 +48,30 @@ def visualize_geography(df):
     ax.set_ylim(IMAGE_BOT, IMAGE_TOP)
     plt.show()
 
-def visualize_graphs():
+def visualize_graphs(df):
     """
     Display all sensors' readings over time
     """
-    # get n distinct keys, make subplots.
-    #groupby keys, timestamp isna --> drop --> plot remaining
+    df = df[~df['timestamp'].isna()].sort_values('timestamp', axis=0)
+    grouped = df.groupby(['key', 'unit'], as_index=False)
+
+    fig, ax = plt.subplots(len(grouped))   
+    i = 0 
+    for name, grp in grouped:
+        ax[i].plot('timestamp', 'value', data=grp)
+        ax[i].set_title("{}: {}".format(name[0], name[1]))
+        i += 1
+    fig.suptitle("All Sensor Data")
+    plt.tight_layout()
+    plt.show()
 
 
 if __name__ == "__main__":
-    """
     header = {"Content-Type": "application/json"}
-    response = requests.request("GET", GET_URL, headers=header)
+    response = requests.request("GET", GET_URL, headers=header, verify=False)
     if response.status_code != 200:
         raise Exception(response.status_code, response.text)
-    #response.json()
-    """
-    df = pd.DataFrame.from_dict(json.loads(json_data)['data'])
-    visualize_geography(df)
-    #visualize_graphs()
+    json_data = response.json()
+    df = pd.DataFrame.from_dict(json_data)
+    #visualize_geography(df)
+    visualize_graphs(df)
