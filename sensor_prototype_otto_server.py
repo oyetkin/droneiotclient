@@ -7,8 +7,7 @@ import datetime
 import sys
 import ssl
 
-ssl._create_default_https_context = ssl._create_unverified_context
-
+#ssl._create_default_https_context = ssl._create_unverified_context
 
 GET_URL = "http://api.is-conic.com/api/v0p1/debug/get_data"
 BATCH_POST_URL = "http://api.is-conic.com/api/v0p1/sensor/batch"
@@ -42,7 +41,7 @@ def batch_post(id, type, unit, values):
     payloads = []
     for v in values:
         payload = {"key": meas_type, "unit": unit, "value": v, "lat": MY_LAT, "lon": MY_LON}        
-        paylods.append(payload)
+        payloads.append(payload)
     resp = requests.post(BATCH_POST_URL, data=payloads)
     return resp
 
