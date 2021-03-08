@@ -1,5 +1,8 @@
+#include <Wire.h>  
 #include "WiFi.h"
 #include "HTTPClient.h"
+#include "SSD1306Wire.h"
+
 
 const char* ssid = "ATT5yX6g8p";
 const char* password =  "35fcs6hyi#yj";
