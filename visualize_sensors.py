@@ -1,22 +1,29 @@
 ############ Visualize sensor data from otto's API ##############
 
-import pandas as pd 
-import numpy as np 
+import pandas as pd
+import numpy as np
+import requests
 import os
+import json
 import matplotlib as mpl
 mpl.use('tkagg')
 import matplotlib.pyplot as plt 
-from pandas.plotting import register_matplotlib_converters
-register_matplotlib_converters()
+#from pandas.plotting import register_matplotlib_converters
+#register_matplotlib_converters()
 import datetime
 
+## To use this: 
+# Go to https://www.openstreetmap.org/ and edit the display box to the area you want
+# Copy the coordinates of the display box here. then either screenshot or export
+# (using the share icon on the right + selecting the display box) the map. 
+# From this tutorial: https://towardsdatascience.com/easy-steps-to-plot-geographic-data-on-a-map-python-11217859a2db
 IMAGE_TOP = 51.33
 IMAGE_BOT = 23.53
 IMAGE_LEFT = -127.45
 IMAGE_RIGHT = -65.15
 bbox = (IMAGE_LEFT, IMAGE_RIGHT, IMAGE_BOT, IMAGE_TOP)
 
-
+GET_URL = "https://api.is-conic.com/api/v0p1/debug/get_data"
 
 def visualize_geography():
     """
@@ -44,5 +51,11 @@ def visualize_graphs():
 
 
 if __name__ == "__main__":
-    visualize_geography()
-    visualize_graphs()
+    header = {"Content-Type": "application/json"}
+    response = requests.request("GET", GET_URL, headers=header)
+    if response.status_code != 200:
+        raise Exception(response.status_code, response.text)
+    #response.json()
+
+    #visualize_geography()
+    #visualize_graphs()
