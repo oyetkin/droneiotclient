@@ -31,6 +31,8 @@ SSD1306Wire display(0x3c, SDA, SCL);
 Adafruit_BMP085 bmp;
 HTTPClient http;
 
+const int reading_delay = 20000; // n milliseconds to pause between readings
+
 //WIFI SETTINGS
 const char* ssid = "ATT5yX6g8p";
 const char* password =  "35fcs6hyi#yj";
@@ -41,6 +43,7 @@ const char* ntpServer = "pool.ntp.org";
 const String sensor_name = "Arjun_weather_kit";
 float lat = 35.1222;
 float lon = -121.8431;
+
 
 //state variables
 unsigned long epochTime;
@@ -120,7 +123,7 @@ void display_readings(float humidity, float temp, float pressure) {
     display.setFont(ArialMT_Plain_16);
     display.drawString(0, 12, "Humidity: " + String(humidity) + "%");
     display.drawString(0, 28, "Temp: " + String(temp) + "C");
-    display.drawString(0, 44, "Pressure: " + String(pressure/) + "Pa");
+    display.drawString(0, 44, "Pressure: " + String(pressure) + "Pa");
     display.display();
 }
 
@@ -135,19 +138,19 @@ void loop() {
     float t = dht.readTemperature();
     float p = bmp.readPressure();
     if (isnan(h) || isnan(t)) {
-     Serial.println(F("Failed to read from DHT sensor!"));
+     Serial.println("Failed to read from DHT sensor!");
     } else {
       //Print readings to the serial
-      Serial.println("Humidity (RF%): " + String(h));
+      Serial.println("Humidity (RH%): " + String(h));
       Serial.println("Temperature (C): " + String(t));
       Serial.println("Pressure (Pa): " + String(p));
       //Post both values separately and report error
+      //TODO: posting the temperature produces errors (error code -2?!) when delay is too high
       int response_1 = http.POST(post_to_string(t, "Celsius", true, true));
       int response_2 = http.POST(post_to_string(h, "RH%", true, true));
       int response_3 = http.POST(post_to_string(p, "Pa", true, true));
-      if ((response_1 != 200) or (response_2 != 200)) {
-        Serial.print("HTTP Post error: ");
-        Serial.println(http.getString()); 
+      if ((response_1 != 200) or (response_2 != 200) or (response_3 != 200)) {
+        Serial.print("HTTP Post error");
       }
       //display on OLED
       display_readings(h, t, p);

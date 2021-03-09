@@ -25,8 +25,6 @@ bbox = (IMAGE_LEFT, IMAGE_RIGHT, IMAGE_BOT, IMAGE_TOP)
 
 GET_URL = "https://api.is-conic.com/api/v0p1/debug/get_data"
 
-json_data = '{"data":[{"timestamp":128,"key":"Arjun_weather_kit","unit":"RF%","value":57.0,"lat":35.12,"lon":-121.84},{"timestamp":130,"key":"Arjun_weather_kit","unit":"Celsius","value":24.6,"lat":35.12,"lon":-121.84},{"timestamp":130,"key":"Arjun_weather_kit","unit":"RF%","value":56.0,"lat":35.12,"lon":-121.84},{"timestamp":132,"key":"Arjun_weather_kit","unit":"Celsius","value":24.6,"lat":35.12,"lon":-121.84},{"timestamp":133,"key":"Arjun_weather_kit","unit":"RF%","value":56.0,"lat":35.12,"lon":-121.84},{"timestamp":135,"key":"Arjun_weather_kit","unit":"Celsius","value":24.6,"lat":35.12,"lon":-121.84},{"timestamp":135,"key":"Arjun_weather_kit","unit":"RF%","value":56.0,"lat":35.12,"lon":-121.84},{"timestamp":138,"key":"Arjun_weather_kit","unit":"Celsius","value":24.6,"lat":35.12,"lon":-121.84},{"timestamp":138,"key":"Arjun_weather_kit","unit":"RF%","value":56.0,"lat":35.12,"lon":-121.84},{"timestamp":140,"key":"Arjun_weather_kit","unit":"Celsius","value":24.6,"lat":35.12,"lon":-121.84},{"timestamp":140,"key":"Arjun_weather_kit","unit":"RF%","value":56.0,"lat":35.12,"lon":-121.84},{"timestamp":143,"key":"Arjun_weather_kit","unit":"Celsius","value":24.6,"lat":35.12,"lon":-121.84},{"timestamp":143,"key":"Arjun_weather_kit","unit":"RF%","value":56.0,"lat":35.12,"lon":-121.84},{"timestamp":145,"key":"Arjun_weather_kit","unit":"Celsius","value":24.6,"lat":35.12,"lon":-121.84},{"timestamp":145,"key":"Arjun_weather_kit","unit":"RF%","value":56.0,"lat":35.12,"lon":-121.84},{"timestamp":148,"key":"Arjun_weather_kit","unit":"Celsius","value":24.6,"lat":35.12,"lon":-121.84},{"timestamp":148,"key":"Arjun_weather_kit","unit":"RF%","value":56.0,"lat":35.12,"lon":-121.84},{"timestamp":150,"key":"Arjun_weather_kit","unit":"Celsius","value":24.6,"lat":35.12,"lon":-121.84},{"timestamp":150,"key":"Arjun_weather_kit","unit":"RF%","value":56.0,"lat":35.12,"lon":-121.84},{"timestamp":153,"key":"Arjun_weather_kit","unit":"Celsius","value":24.6,"lat":35.12,"lon":-121.84},{"timestamp":153,"key":"Arjun_weather_kit","unit":"RF%","value":56.0,"lat":35.12,"lon":-121.84},{"timestamp":155,"key":"Arjun_weather_kit","unit":"Celsius","value":24.6,"lat":35.12,"lon":-121.84},{"timestamp":155,"key":"Arjun_weather_kit","unit":"RF%","value":56.0,"lat":35.12,"lon":-121.84},{"timestamp":158,"key":"Arjun_weather_kit","unit":"Celsius","value":24.6,"lat":35.12,"lon":-121.84},{"timestamp":158,"key":"Arjun_weather_kit","unit":"RF%","value":56.0,"lat":35.12,"lon":-121.84},{"timestamp":160,"key":"Arjun_weather_kit","unit":"Celsius","value":24.6,"lat":35.12,"lon":-121.84},{"timestamp":160,"key":"Arjun_weather_kit","unit":"RF%","value":56.0,"lat":35.12,"lon":-121.84},{"timestamp":163,"key":"Arjun_weather_kit","unit":"Celsius","value":24.7,"lat":35.12,"lon":-121.84},{"timestamp":163,"key":"Arjun_weather_kit","unit":"RF%","value":56.0,"lat":35.12,"lon":-121.84}]}'
-
 def visualize_geography(df):
     """
     Show all sensors as points on a USA map; label their names
@@ -55,16 +53,21 @@ def visualize_graphs(df):
     df = df[~df['timestamp'].isna()].sort_values('timestamp', axis=0)
     grouped = df.groupby(['key', 'unit'], as_index=False)
 
-    fig, ax = plt.subplots(len(grouped))   
     i = 0 
     for name, grp in grouped:
-        ax[i].plot('timestamp', 'value', data=grp)
-        ax[i].set_title("{}: {}".format(name[0], name[1]))
+        fig, ax = plt.subplots()  
+        ax.plot('timestamp', 'value', data=grp)
+        ax.set_title("{}: {}".format(name[0], name[1]))
         i += 1
+<<<<<<< HEAD
     fig.suptitle("All Sensor Data")
     plt.tight_layout()
     plt.show()
     
+=======
+        plt.show()
+
+>>>>>>> 9af0bc5f0b8bdbeb50f82d118761707dbfe58e90
 
 if __name__ == "__main__":
     header = {"Content-Type": "application/json"}
