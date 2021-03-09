@@ -1,23 +1,35 @@
-String device_id = "abc_123";
-String s1_type = "temperature";
-String s1_unit = "Fahrenheit";
-String s2_type = "humidity";
-String s2_unit = "RH Percent";
+/*
+ * Miscellaneous script for testing various features. 
+ * Currently testing the IR LED stuff.
+ * 
+ */
 
-float lat = 32.616231;
-float lon = -117.040898;
+#include "IRLremote.h" 
+ 
+const int RECV_PIN = 4;
+IRrecv irrecv(RECV_PIN);
+decode_results results;
+IRsend mySender;
 
-//One option: SDK includes a "sensor" class; they instantiate
-// an instance for each attached sensor on the Arduino. 
-// Not ideal if the device is sleeping a lot. 
+#define pinIR 2
+#define pinSendIR 3
+#define IRL_DEBOUCE 300
 
-void setup() {
-  // put your setup code here, to run once:
-  //misc...
-
+void setup(){
+  Serial.begin(9600);
+  irrecv.enableIRIn();
+  irrecv.blink13(true);
 }
 
-void loop() {
-  // put your main code here, to run repeatedly:
-
+void loop(){
+  if (irrecv.decode(&results)){
+        Serial.println(results.value, HEX);
+        irrecv.resume();
+  }
+  if (Serial.read() != -1) {
+    //send a code every time a character is received from the serial port
+    //Sony DVD power A8BCA
+    Serial.println("try to send");
+    mySender.send(SONY,0xa8bca, 17);
+  }
 }
