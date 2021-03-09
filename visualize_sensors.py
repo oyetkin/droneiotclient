@@ -55,15 +55,13 @@ def visualize_graphs(df):
     df = df[~df['timestamp'].isna()].sort_values('timestamp', axis=0)
     grouped = df.groupby(['key', 'unit'], as_index=False)
 
-    fig, ax = plt.subplots(len(grouped))   
     i = 0 
     for name, grp in grouped:
-        ax[i].plot('timestamp', 'value', data=grp)
-        ax[i].set_title("{}: {}".format(name[0], name[1]))
+        fig, ax = plt.subplots()  
+        ax.plot('timestamp', 'value', data=grp)
+        ax.set_title("{}: {}".format(name[0], name[1]))
         i += 1
-    fig.suptitle("All Sensor Data")
-    plt.tight_layout()
-    plt.show()
+        plt.show()
 
 
 if __name__ == "__main__":
