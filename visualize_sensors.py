@@ -64,7 +64,7 @@ def visualize_graphs(df):
     fig.suptitle("All Sensor Data")
     plt.tight_layout()
     plt.show()
-
+    
 
 if __name__ == "__main__":
     header = {"Content-Type": "application/json"}

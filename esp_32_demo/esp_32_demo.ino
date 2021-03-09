@@ -1,3 +1,14 @@
+/*
+ * Install the following libraries: 
+ * "Wifi" (builtin)
+ * "HTTP Client" (builtin on some devices)
+ * "Adafruit BMP085 Library"
+ * "Adafruit BusIO"
+ * "Adafruit Unified Sensor"
+ * "DHT sensor library"
+ * "ESP8266 and ESP32 OLED driver for SSD1306 displays"
+ */
+
 #include <Wire.h>  
 #include "WiFi.h"
 #include "DHT.h"
