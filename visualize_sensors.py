@@ -73,5 +73,5 @@ if __name__ == "__main__":
         raise Exception(response.status_code, response.text)
     json_data = response.json()
     df = pd.DataFrame.from_dict(json_data)
-    #visualize_geography(df)
+    visualize_geography(df)
     visualize_graphs(df)

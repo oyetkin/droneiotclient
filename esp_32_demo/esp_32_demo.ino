@@ -4,6 +4,7 @@
 #include "HTTPClient.h"
 #include "SSD1306Wire.h"
 #include "time.h"
+#include <Adafruit_BMP085.h>
 
 // PINOUTS
 #define PIN_OLED_SDA 21
@@ -16,6 +17,7 @@
 
 DHT dht(PIN_DHT11, DHTTYPE);
 SSD1306Wire display(0x3c, SDA, SCL);
+Adafruit_BMP085 bmp;
 HTTPClient http;
 
 //WIFI SETTINGS
@@ -56,6 +58,11 @@ void setup() {
   display.setFont(ArialMT_Plain_10);
   //start time
   configTime(0, 0, ntpServer);
+  //start the bmp sensor
+  if (!bmp.begin()) {
+    Serial.println("Could not find a valid BMP085 sensor, check wiring!");
+    while (1) {}
+  }
 }
 
 unsigned long getTime() {
@@ -93,7 +100,7 @@ String post_to_string(float measurement, String unit, bool incl_time, bool incl_
   return json;
 }
 
-void display_readings(float humidity, float temp) {
+void display_readings(float humidity, float temp, float pressure) {
     /*
      * Display the current humidity and temperature on the OLED. 
      */
@@ -101,8 +108,8 @@ void display_readings(float humidity, float temp) {
     display.setTextAlignment(TEXT_ALIGN_LEFT);
     display.setFont(ArialMT_Plain_16);
     display.drawString(0, 12, "Humidity: " + String(humidity) + "%");
-    display.setFont(ArialMT_Plain_16);
-    display.drawString(0, 30, "Temp: " + String(temp) + "C");
+    display.drawString(0, 28, "Temp: " + String(temp) + "C");
+    display.drawString(0, 44, "Pressure: " + String(pressure/) + "Pa");
     display.display();
 }
 
@@ -115,21 +122,24 @@ void loop() {
     delay(2000);
     float h = dht.readHumidity();
     float t = dht.readTemperature();
+    float p = bmp.readPressure();
     if (isnan(h) || isnan(t)) {
      Serial.println(F("Failed to read from DHT sensor!"));
     } else {
       //Print readings to the serial
       Serial.println("Humidity (RF%): " + String(h));
       Serial.println("Temperature (C): " + String(t));
+      Serial.println("Pressure (Pa): " + String(p));
       //Post both values separately and report error
       int response_1 = http.POST(post_to_string(t, "Celsius", true, true));
-      int response_2 = http.POST(post_to_string(h, "RF%", true, true));
+      int response_2 = http.POST(post_to_string(h, "RH%", true, true));
+      int response_3 = http.POST(post_to_string(p, "Pa", true, true));
       if ((response_1 != 200) or (response_2 != 200)) {
         Serial.print("HTTP Post error: ");
         Serial.println(http.getString()); 
       }
       //display on OLED
-      display_readings(h, t);
+      display_readings(h, t, p);
     }
   }
 }
