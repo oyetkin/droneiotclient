@@ -26,9 +26,15 @@
 #define SCREEN_WIDTH 128 // OLED display width, in pixels
 #define SCREEN_HEIGHT 64 // OLED display height, in pixels
 #define OLED_RESET     -1 // Reset pin # (or -1 if sharing Arduino reset pin)
+#define OLED_BUTTON GPIO_NUM_13 //must be one of the RTC gpios
+#define BUTTON_PIN_BITMASK 0x000002000 // 2^OLED_BUTTON in hex
 
 #define uS_TO_S_FACTOR 1000000ULL  /* Conversion factor for micro seconds to seconds */
 #define TIME_TO_SLEEP  30        /* Time ESP32 will go to sleep (in seconds) */
+
+RTC_DATA_ATTR float hum = -1.0;
+RTC_DATA_ATTR float temp = -1.0;
+RTC_DATA_ATTR float pres = -1.0;
 
 HTTPClient http;
 
@@ -51,7 +57,7 @@ void connect_to_server();
 unsigned long getTime();
 String post_to_string(float, String, bool, bool);
 void display_readings(SSD1306Wire*, float, float, float);
-void display_and_sleep(SSD1306Wire*, float, float, float, int);
+void display_and_sleep(SSD1306Wire*, int);
 
 void setup() {
   /*
@@ -62,47 +68,72 @@ void setup() {
   Serial.begin(115200);
   delay(1000);
   Serial.println("Wake up");
+
+  esp_sleep_wakeup_cause_t wakeup_reason = esp_sleep_get_wakeup_cause();
+  if (wakeup_reason == ESP_SLEEP_WAKEUP_EXT1) {
+    display_and_sleep(&display, 2000);
+  } else if (wakeup_reason == ESP_SLEEP_WAKEUP_TIMER) {
+    boot_and_post_sensors();
+  } else {
+    Serial.println("other");
+  }
+  
+  Serial.println("Going to sleep now");
+  delay(1000);
+  Serial.flush(); 
+  esp_sleep_enable_timer_wakeup(TIME_TO_SLEEP * uS_TO_S_FACTOR);
+  esp_sleep_enable_ext1_wakeup(BUTTON_PIN_BITMASK,ESP_EXT1_WAKEUP_ANY_HIGH);
+  esp_deep_sleep_start();
+}
+
+void boot_and_post_sensors() {
+  /*
+   * Call this when the sensor is booted by time. Activates a wifi connection, 
+   * loads the sensors, gets their readings, and posts the data. 
+   */
   //initialize wifi and servers 
   connect_to_server();
   dht.begin();
   configTime(0, 0, ntpServer); //time
   if (!bmp.begin()) {Serial.println("Could not find a valid BMP085 sensor!");} //bmp
+  pinMode(OLED_BUTTON, INPUT);
 
   //Now read the sensors
   Serial.println("Read sensors");
   delay(2000);
-  float h = dht.readHumidity();
-  float t = dht.readTemperature();
-  float p = bmp.readPressure();
+  hum = dht.readHumidity();
+  temp = dht.readTemperature();
+  pres = bmp.readPressure();
 
   //And post to the server
-  if (isnan(h) || isnan(t) || isnan(p)) {
+  if (isnan(hum) || isnan(temp) || isnan(pres)) {
     Serial.println("Failed to read!");
   } else {
     //Print readings to the serial
-    Serial.println("Humidity (RH%): " + String(h));
-    Serial.println("Temperature (C): " + String(t));
-    Serial.println("Pressure (Pa): " + String(p));
+    Serial.println("Humidity (RH%): " + String(hum));
+    Serial.println("Temperature (C): " + String(temp));
+    Serial.println("Pressure (Pa): " + String(pres));
     //Post all values separately and report error
-    int response_1 = http.POST(post_to_string(t, "Celsius", true, true));
-    int response_2 = http.POST(post_to_string(h, "RH%", true, true));
-    int response_3 = http.POST(post_to_string(p, "Pa", true, true));
+    int response_1 = http.POST(post_to_string(temp, "Celsius", true, true));
+    int response_2 = http.POST(post_to_string(hum, "RH%", true, true));
+    int response_3 = http.POST(post_to_string(pres, "Pa", true, true));
     if ((response_1 != 200) or (response_2 != 200) or (response_3 != 200)) {
       Serial.println("HTTP Post error");
     }
-    //display on OLED
-    display_and_sleep(&display, h, t, p, 2000);
   }
-
-  Serial.println("Going to sleep now");
-  delay(1000);
-  Serial.flush(); 
-  esp_sleep_enable_timer_wakeup(TIME_TO_SLEEP * uS_TO_S_FACTOR);
-  esp_deep_sleep_start();
 }
 
-void loop() {
-  // Leave this empty
+void display_and_sleep(SSD1306Wire* d, int display_len) {
+  /*
+   * Call this when the sensor is booted by external trigger. 
+   * Activate the OLED display, show readings, and then turn off the display.
+   */
+  d->init(); //OLED
+  d->flipScreenVertically();
+  d->setFont(ArialMT_Plain_10);
+  display_readings(d, hum, temp, pres);
+  delay(display_len);
+  d->displayOff();
 }
 
 
@@ -167,14 +198,7 @@ void display_readings(SSD1306Wire* d, float humidity, float temp, float pressure
   d->display();
 }
 
-void display_and_sleep(SSD1306Wire* d, float h, float t, float p, int display_len) {
-  /*
-   * Activate display, show readings, and then turn off the display
-   */
-  d->init(); //OLED
-  d->flipScreenVertically();
-  d->setFont(ArialMT_Plain_10);
-  display_readings(d, h, t, p);
-  delay(display_len);
-  d->displayOff();
+
+void loop() {
+  // Leave this empty
 }
