@@ -59,15 +59,12 @@ def visualize_graphs(df):
         ax.plot('timestamp', 'value', data=grp)
         ax.set_title("{}: {}".format(name[0], name[1]))
         i += 1
-<<<<<<< HEAD
     fig.suptitle("All Sensor Data")
     plt.tight_layout()
     plt.show()
     
-=======
         plt.show()
 
->>>>>>> 9af0bc5f0b8bdbeb50f82d118761707dbfe58e90
 
 if __name__ == "__main__":
     header = {"Content-Type": "application/json"}
