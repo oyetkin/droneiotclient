@@ -2,41 +2,37 @@
  * Install the following libraries: 
  * "Wifi" (builtin)
  * "HTTP Client" (builtin on some devices)
- * "Adafruit BMP085 Library"
  * "Adafruit BusIO"
  * "Adafruit Unified Sensor"
- * "DHT sensor library"
  * "ESP8266 and ESP32 OLED driver for SSD1306 displays"
+ * "Adafruit BME280"
+ * 
+ * Connections:
+ * 
  */
 
 #include <Wire.h>  
 #include "WiFi.h"
-#include "DHT.h"
 #include "HTTPClient.h"
-#include "SSD1306Wire.h"
-#include "OLEDDisplay.h"
+#include <Adafruit_Sensor.h>
+#include <Adafruit_BME280.h>
+#include "SH1106Wire.h"
 #include "time.h"
-#include <Adafruit_BMP085.h>
 
 // PINOUTS
 #define PIN_OLED_SDA 21
 #define PIN_OLED_SCL 22
-#define PIN_DHT11 4
-#define DHTTYPE DHT11 // type of DHT device (DHT 11 comes with amazon weather station)
 #define SCREEN_WIDTH 128 // OLED display width, in pixels
 #define SCREEN_HEIGHT 64 // OLED display height, in pixels
 #define OLED_RESET     -1 // Reset pin # (or -1 if sharing Arduino reset pin)
 #define OLED_BUTTON GPIO_NUM_13 //must be one of the RTC gpios
+
 #define BUTTON_PIN_BITMASK 0x000002000 // 2^OLED_BUTTON in hex
-
 #define uS_TO_S_FACTOR 1000000ULL  /* Conversion factor for micro seconds to seconds */
-#define TIME_TO_SLEEP  30        /* Time ESP32 will go to sleep (in seconds) */
 
-RTC_DATA_ATTR float hum = -1.0;
-RTC_DATA_ATTR float temp = -1.0;
-RTC_DATA_ATTR float pres = -1.0;
+/* Time ESP32 will go to sleep (in seconds) */
+#define TIME_TO_SLEEP  30
 
-HTTPClient http;
 
 //WIFI SETTINGS
 const char* ssid = "ATT5yX6g8p";
@@ -49,15 +45,18 @@ const String sensor_name = "Arjun_weather_kit";
 float lat = 32.636462;
 float lon = -117.095660;
 
-DHT dht(PIN_DHT11, DHTTYPE);
-SSD1306Wire display(0x3c, SDA, SCL);
-Adafruit_BMP085 bmp;
+HTTPClient http;
+SH1106Wire display(0x3c, SDA, SCL); //7 bit address only
+Adafruit_BME280 bme;
+RTC_DATA_ATTR float hum = -1.0;
+RTC_DATA_ATTR float temp = -1.0;
+RTC_DATA_ATTR float pres = -1.0;
 
 void connect_to_server();
 unsigned long getTime();
 String post_to_string(float, String, bool, bool);
-void display_readings(SSD1306Wire*, float, float, float);
-void display_and_sleep(SSD1306Wire*, int);
+void display_readings(SH1106Wire*, float, float, float);
+void display_and_sleep(SH1106Wire*, int);
 
 void setup() {
   /*
@@ -93,17 +92,16 @@ void boot_and_post_sensors() {
    */
   //initialize wifi and servers 
   connect_to_server();
-  dht.begin();
   configTime(0, 0, ntpServer); //time
-  if (!bmp.begin()) {Serial.println("Could not find a valid BMP085 sensor!");} //bmp
+  if (!bme.begin(0x76)) {Serial.println("Could not find a valid BME sensor!");} //bme
   pinMode(OLED_BUTTON, INPUT);
 
   //Now read the sensors
   Serial.println("Read sensors");
   delay(2000);
-  hum = dht.readHumidity();
-  temp = dht.readTemperature();
-  pres = bmp.readPressure();
+  hum = bme.readHumidity();
+  temp = bme.readTemperature();
+  pres = bme.readPressure();
 
   //And post to the server
   if (isnan(hum) || isnan(temp) || isnan(pres)) {
@@ -123,7 +121,7 @@ void boot_and_post_sensors() {
   }
 }
 
-void display_and_sleep(SSD1306Wire* d, int display_len) {
+void display_and_sleep(SH1106Wire* d, int display_len) {
   /*
    * Call this when the sensor is booted by external trigger. 
    * Activate the OLED display, show readings, and then turn off the display.
@@ -138,6 +136,9 @@ void display_and_sleep(SSD1306Wire* d, int display_len) {
 
 
 void connect_to_server() {
+  /*
+   * Connect to the wifi and Otto's server
+   */
   WiFi.begin(ssid, password);
   Serial.println("Wifi has begun");
   while (WiFi.status() != WL_CONNECTED) {
@@ -185,7 +186,7 @@ String post_to_string(float measurement, String unit, bool incl_time, bool incl_
   return json;
 }
 
-void display_readings(SSD1306Wire* d, float humidity, float temp, float pressure) {
+void display_readings(SH1106Wire* d, float humidity, float temp, float pressure) {
     /*
      * Display the current humidity and temperature on the OLED. 
      */
