@@ -19,7 +19,7 @@
 #include "time.h"
 
 // PINOUTS
-#define DEVICE_MODE_SELECT_PIN 12
+#define DEVICE_MODE_SELECT_PIN GPIO_NUM_27
 #define TRIGGER_PIN GPIO_NUM_14
 #define OLED_BUTTON GPIO_NUM_13 //must be one of the RTC gpios
 #define SCREEN_WIDTH 128 // OLED display width, in pixels
@@ -28,9 +28,11 @@
 
 #define WAKE_PIN_BITMASK 0x000006000 // 2^OLED_BUTTON + 2^TRIGGER_PIN in hex
 #define uS_TO_S_FACTOR 1000000ULL  /* Conversion factor for micro seconds to seconds */
+#define MAX_RECORDS 298 //298 is exactly enough for 3 float arrays (each having 298 elements)
 
 #define TIME_TO_SLEEP  30 //time to sleep in seconds
 #define DISPLAY_LEN 2000 //time to show OLED in millis
+#define MAX_WIFI_RETRIES 20 //number of times to try connecting to wifi before giving up
 
 //WIFI SETTINGS
 const char* ssid = "ATT5yX6g8p";
@@ -46,16 +48,11 @@ float lon = -117.095660;
 HTTPClient http;
 SH1106Wire display(0x3c, SDA, SCL); //7 bit address only
 Adafruit_BME280 bme;
-RTC_DATA_ATTR float hum = -1.0;
-RTC_DATA_ATTR float temp = -1.0;
-RTC_DATA_ATTR float pres = -1.0;
+RTC_DATA_ATTR float hum[MAX_RECORDS];
+RTC_DATA_ATTR float temp[MAX_RECORDS];
+RTC_DATA_ATTR float pres[MAX_RECORDS];
 bool device_mode_wifi; //1 for wifi, 0 for trigger
 
-void connect_to_server();
-unsigned long getTime();
-String post_to_string(float, String, bool, bool);
-void display_readings(SH1106Wire*, float, float, float);
-void display_and_sleep(SH1106Wire*);
 
 void setup() {
   /*
@@ -123,36 +120,47 @@ void boot_and_post_sensors() {
   //initialize wifi and servers 
   if (!bme.begin(0x76)) {
     Serial.println("Could not find a valid BME sensor!");
-    go_to_sleep();
+    go_to_sleep(1);
   }
 
   //Now read the sensors
   Serial.println("Read sensors");
   delay(2000);
-  hum = bme.readHumidity();
-  temp = bme.readTemperature();
-  pres = bme.readPressure();
-  if (isnan(hum) || isnan(temp) || isnan(pres)) {
+  float curr_hum = bme.readHumidity();
+  float curr_temp = bme.readTemperature();
+  float curr_pres = bme.readPressure();
+  if (isnan(curr_hum) || isnan(curr_temp) || isnan(curr_pres)) {
     Serial.println("Failed to read!");
-    go_to_sleep();
+    go_to_sleep(1);
   } 
-  connect_to_server();
-  configTime(0, 0, ntpServer); //time
+  push_back(hum, curr_hum, MAX_RECORDS);
+  push_back(temp, curr_temp, MAX_RECORDS);
+  push_back(pres, curr_pres, MAX_RECORDS); 
+  //Print readings to the serial
+  Serial.println("Humidity (RH%): " + String(curr_hum));
+  Serial.println("Temperature (C): " + String(curr_temp));
+  Serial.println("Pressure (Pa): " + String(curr_pres));
 
-  //And post to the server
-  else {
-    //Print readings to the serial
-    Serial.println("Humidity (RH%): " + String(hum));
-    Serial.println("Temperature (C): " + String(temp));
-    Serial.println("Pressure (Pa): " + String(pres));
-    //Post all values separately and report error
-    int response_1 = http.POST(post_to_string(temp, "Celsius", true, true));
-    int response_2 = http.POST(post_to_string(hum, "RH%", true, true));
-    int response_3 = http.POST(post_to_string(pres, "Pa", true, true));
-    if ((response_1 != 200) or (response_2 != 200) or (response_3 != 200)) {
-      Serial.println("HTTP Post error");
-    }
+  //Post all values separately and report error
+  connect_to_server();
+  configTime(0, 0, ntpServer);
+  int response_1 = http.POST(post_to_string(curr_temp, "Celsius", true, true));
+  int response_2 = http.POST(post_to_string(curr_hum, "RH%", true, true));
+  int response_3 = http.POST(post_to_string(curr_pres, "Pa", true, true));
+  if ((response_1 != 200) or (response_2 != 200) or (response_3 != 200)) {
+    Serial.println("HTTP Post error");
   }
+}
+
+void push_back(float* a, float v, int a_len) {
+  /*
+   * Uses the specified array as a circular buffer. Pushes all entries
+   * of a back, deleting its last element. Puts v at the front of array. 
+   * You can access the most recent value with a[0]. 
+   */
+   //a is an address. int* p = (int *)a assigns it to a pointer. p[1] is the next address
+   memcpy(&a[1], a, sizeof(a[0])*(a_len-1));
+   a[0] = v;
 }
 
 void connect_to_server() {
@@ -166,7 +174,7 @@ void connect_to_server() {
     delay(500);
     Serial.println("Connecting to WiFi..");
     counter++;
-    if (counter > 30) {
+    if (counter > MAX_WIFI_RETRIES) {
       Serial.println("Failed to connect!");
       go_to_sleep(1);
     }
@@ -242,12 +250,12 @@ void display_and_sleep(SH1106Wire* d) {
   d->init(); //OLED
   d->flipScreenVertically();
   d->setFont(ArialMT_Plain_10);
-  display_readings(d, hum, temp, pres);
+  display_readings(d, hum[0], temp[0], pres[0]);
   delay(DISPLAY_LEN);
   d->displayOff();
 }
 
-void display_readings(SH1106Wire* d, float humidity, float temp, float pressure) {
+void display_readings(SH1106Wire* d, float humidity, float temperature, float pressure) {
     /*
      * Display the current humidity and temperature on the OLED. 
      */
@@ -255,10 +263,9 @@ void display_readings(SH1106Wire* d, float humidity, float temp, float pressure)
   d->setTextAlignment(TEXT_ALIGN_LEFT);
   d->setFont(ArialMT_Plain_16);
   d->drawString(0, 12, "Humidity: " + String(humidity) + "%");
-  d->drawString(0, 28, "Temp: " + String(temp) + "C");
+  d->drawString(0, 28, "Temp: " + String(temperature) + "C");
   d->drawString(0, 44, "Pressure: " + String(pressure) + "Pa");
   d->display();
 }
-
 
 void loop() {}
