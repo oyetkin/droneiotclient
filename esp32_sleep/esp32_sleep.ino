@@ -10,7 +10,6 @@
  * Connections:
  * 
  */
-
 #include <Wire.h>  
 #include "WiFi.h"
 #include "HTTPClient.h"
@@ -20,19 +19,18 @@
 #include "time.h"
 
 // PINOUTS
-#define PIN_OLED_SDA 21
-#define PIN_OLED_SCL 22
+#define DEVICE_MODE_SELECT_PIN 12
+#define TRIGGER_PIN GPIO_NUM_14
+#define OLED_BUTTON GPIO_NUM_13 //must be one of the RTC gpios
 #define SCREEN_WIDTH 128 // OLED display width, in pixels
 #define SCREEN_HEIGHT 64 // OLED display height, in pixels
 #define OLED_RESET     -1 // Reset pin # (or -1 if sharing Arduino reset pin)
-#define OLED_BUTTON GPIO_NUM_13 //must be one of the RTC gpios
 
-#define BUTTON_PIN_BITMASK 0x000002000 // 2^OLED_BUTTON in hex
+#define WAKE_PIN_BITMASK 0x000006000 // 2^OLED_BUTTON + 2^TRIGGER_PIN in hex
 #define uS_TO_S_FACTOR 1000000ULL  /* Conversion factor for micro seconds to seconds */
 
-/* Time ESP32 will go to sleep (in seconds) */
-#define TIME_TO_SLEEP  30
-
+#define TIME_TO_SLEEP  30 //time to sleep in seconds
+#define DISPLAY_LEN 2000 //time to show OLED in millis
 
 //WIFI SETTINGS
 const char* ssid = "ATT5yX6g8p";
@@ -51,37 +49,69 @@ Adafruit_BME280 bme;
 RTC_DATA_ATTR float hum = -1.0;
 RTC_DATA_ATTR float temp = -1.0;
 RTC_DATA_ATTR float pres = -1.0;
+bool device_mode_wifi; //1 for wifi, 0 for trigger
 
 void connect_to_server();
 unsigned long getTime();
 String post_to_string(float, String, bool, bool);
 void display_readings(SH1106Wire*, float, float, float);
-void display_and_sleep(SH1106Wire*, int);
+void display_and_sleep(SH1106Wire*);
 
 void setup() {
   /*
-   * Connect to wifi and start sensor modules. 
-   * Network name and password should be specified manually
-   * above. 
+   * All the device logic is contained here
    */
   Serial.begin(115200);
   delay(1000);
   Serial.println("Wake up");
+  pinMode(DEVICE_MODE_SELECT_PIN, INPUT);
+  device_mode_wifi = digitalRead(DEVICE_MODE_SELECT_PIN);
 
   esp_sleep_wakeup_cause_t wakeup_reason = esp_sleep_get_wakeup_cause();
-  if (wakeup_reason == ESP_SLEEP_WAKEUP_EXT1) {
-    display_and_sleep(&display, 2000);
-  } else if (wakeup_reason == ESP_SLEEP_WAKEUP_TIMER) {
-    boot_and_post_sensors();
+  
+  if (device_mode_wifi) {
+    Serial.println("Mode: Wifi");
+    if (wakeup_reason == ESP_SLEEP_WAKEUP_EXT1) { // either trigger or button
+      display_and_sleep(&display);
+      boot_and_post_sensors();
+    } else if (wakeup_reason == ESP_SLEEP_WAKEUP_TIMER) {
+      boot_and_post_sensors();
+    } else { // usually on device startup
+      show_wakeup(&display, device_mode_wifi);
+      boot_and_post_sensors();
+    }
   } else {
-    Serial.println("other");
+    Serial.println("Mode: Trigger");
+    if (wakeup_reason == ESP_SLEEP_WAKEUP_EXT1) {
+      int pin_triggered = log(esp_sleep_get_ext1_wakeup_status())/log(2);
+      if (pin_triggered == TRIGGER_PIN) {
+        //batch upload here
+      } else if (pin_triggered == OLED_BUTTON) {
+        display_and_sleep(&display); 
+      }
+    } else if (wakeup_reason == ESP_SLEEP_WAKEUP_TIMER) {
+      //save sensor values
+    } else { // usually on device startup
+      //save sensors in array
+      show_wakeup(&display, device_mode_wifi);
+    } 
   }
   
+  //Entering sleep
+  go_to_sleep(device_mode_wifi);
+}
+
+
+void go_to_sleep(bool wifi_mode) {
+  /*
+   * Send the device to sleep. Wifi_mode controls which bitmask to use - if in wifi mode,
+   * it won't wake up from an external trigger.
+   */
   Serial.println("Going to sleep now");
   delay(1000);
   Serial.flush(); 
   esp_sleep_enable_timer_wakeup(TIME_TO_SLEEP * uS_TO_S_FACTOR);
-  esp_sleep_enable_ext1_wakeup(BUTTON_PIN_BITMASK,ESP_EXT1_WAKEUP_ANY_HIGH);
+  esp_sleep_enable_ext1_wakeup(WAKE_PIN_BITMASK,ESP_EXT1_WAKEUP_ANY_HIGH);
   esp_deep_sleep_start();
 }
 
@@ -91,10 +121,10 @@ void boot_and_post_sensors() {
    * loads the sensors, gets their readings, and posts the data. 
    */
   //initialize wifi and servers 
-  connect_to_server();
-  configTime(0, 0, ntpServer); //time
-  if (!bme.begin(0x76)) {Serial.println("Could not find a valid BME sensor!");} //bme
-  pinMode(OLED_BUTTON, INPUT);
+  if (!bme.begin(0x76)) {
+    Serial.println("Could not find a valid BME sensor!");
+    go_to_sleep();
+  }
 
   //Now read the sensors
   Serial.println("Read sensors");
@@ -102,11 +132,15 @@ void boot_and_post_sensors() {
   hum = bme.readHumidity();
   temp = bme.readTemperature();
   pres = bme.readPressure();
-
-  //And post to the server
   if (isnan(hum) || isnan(temp) || isnan(pres)) {
     Serial.println("Failed to read!");
-  } else {
+    go_to_sleep();
+  } 
+  connect_to_server();
+  configTime(0, 0, ntpServer); //time
+
+  //And post to the server
+  else {
     //Print readings to the serial
     Serial.println("Humidity (RH%): " + String(hum));
     Serial.println("Temperature (C): " + String(temp));
@@ -121,29 +155,21 @@ void boot_and_post_sensors() {
   }
 }
 
-void display_and_sleep(SH1106Wire* d, int display_len) {
-  /*
-   * Call this when the sensor is booted by external trigger. 
-   * Activate the OLED display, show readings, and then turn off the display.
-   */
-  d->init(); //OLED
-  d->flipScreenVertically();
-  d->setFont(ArialMT_Plain_10);
-  display_readings(d, hum, temp, pres);
-  delay(display_len);
-  d->displayOff();
-}
-
-
 void connect_to_server() {
   /*
    * Connect to the wifi and Otto's server
    */
   WiFi.begin(ssid, password);
   Serial.println("Wifi has begun");
+  int counter = 0;
   while (WiFi.status() != WL_CONNECTED) {
     delay(500);
     Serial.println("Connecting to WiFi..");
+    counter++;
+    if (counter > 30) {
+      Serial.println("Failed to connect!");
+      go_to_sleep(1);
+    }
   }
   Serial.println("Connected to the WiFi network");
   http.begin(server);
@@ -165,7 +191,6 @@ unsigned long getTime() {
   return now;
 }
 
-
 String post_to_string(float measurement, String unit, bool incl_time, bool incl_location) {
   /*
    * Convert the input measurement to a json-compatible string. 
@@ -186,6 +211,42 @@ String post_to_string(float measurement, String unit, bool incl_time, bool incl_
   return json;
 }
 
+void show_wakeup(SH1106Wire* d, bool wifi_mode) {
+  /*
+   * Just show a message on the OLED which mode you're in
+   */
+  d->init();
+  d->flipScreenVertically();
+  
+  d->clear();
+  d->setTextAlignment(TEXT_ALIGN_LEFT);
+  d->setFont(ArialMT_Plain_16);
+  String wake_string = "Starting up in ";
+  if (wifi_mode) {
+    wake_string = wake_string + "Wifi Mode";
+  } else {
+    wake_string = wake_string + "Remote Trigger Mode";
+  }
+  Serial.println(wake_string);
+  d->drawString(0, 12, wake_string);
+  d->display();
+  delay(DISPLAY_LEN);
+  d->displayOff();
+}
+
+void display_and_sleep(SH1106Wire* d) {
+  /*
+   * Call this when the sensor is booted by external trigger. 
+   * Activate the OLED display, show readings, and then turn off the display.
+   */
+  d->init(); //OLED
+  d->flipScreenVertically();
+  d->setFont(ArialMT_Plain_10);
+  display_readings(d, hum, temp, pres);
+  delay(DISPLAY_LEN);
+  d->displayOff();
+}
+
 void display_readings(SH1106Wire* d, float humidity, float temp, float pressure) {
     /*
      * Display the current humidity and temperature on the OLED. 
@@ -200,6 +261,4 @@ void display_readings(SH1106Wire* d, float humidity, float temp, float pressure)
 }
 
 
-void loop() {
-  // Leave this empty
-}
+void loop() {}
