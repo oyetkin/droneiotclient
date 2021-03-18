@@ -9,6 +9,11 @@
  * 
  * Connections:
  * 
+ * 
+ * TODO: 
+ *    --handle error on failure to init esp now
+ *    --callback might be interrupting sleep?
+ *    
  */
 #include <Wire.h>  
 #include "WiFi.h"
@@ -17,6 +22,7 @@
 #include <Adafruit_BME280.h>
 #include "SH1106Wire.h"
 #include "time.h"
+#include <esp_now.h>
 
 // PINOUTS
 #define DEVICE_MODE_SELECT_PIN GPIO_NUM_27
@@ -25,6 +31,7 @@
 #define SCREEN_WIDTH 128 // OLED display width, in pixels
 #define SCREEN_HEIGHT 64 // OLED display height, in pixels
 #define OLED_RESET     -1 // Reset pin # (or -1 if sharing Arduino reset pin)
+#define ESP_NOW_CHANNEL 1
 
 #define WAKE_PIN_BITMASK 0x000006000 // 2^OLED_BUTTON + 2^TRIGGER_PIN in hex
 #define uS_TO_S_FACTOR 1000000ULL  /* Conversion factor for micro seconds to seconds */
@@ -52,7 +59,7 @@ RTC_DATA_ATTR float hum[MAX_RECORDS];
 RTC_DATA_ATTR float temp[MAX_RECORDS];
 RTC_DATA_ATTR float pres[MAX_RECORDS];
 bool device_mode_wifi; //1 for wifi, 0 for trigger
-
+esp_now_peer_info_t slave; //other ESP32 for listening to transmission
 
 void setup() {
   /*
@@ -65,6 +72,11 @@ void setup() {
   device_mode_wifi = digitalRead(DEVICE_MODE_SELECT_PIN);
 
   esp_sleep_wakeup_cause_t wakeup_reason = esp_sleep_get_wakeup_cause();
+  if (wakeup_reason == ESP_SLEEP_WAKEUP_EXT1) {
+    Serial.print("Wakeup cause: interrupt.   ");
+  } else if (wakeup_reason == ESP_SLEEP_WAKEUP_TIMER) {
+    Serial.print("Wakeup cause: timer.   ");
+  }
   
   if (device_mode_wifi) {
     Serial.println("Mode: Wifi");
@@ -80,12 +92,9 @@ void setup() {
   } else {
     Serial.println("Mode: Trigger");
     if (wakeup_reason == ESP_SLEEP_WAKEUP_EXT1) {
-      int pin_triggered = log(esp_sleep_get_ext1_wakeup_status())/log(2);
-      if (pin_triggered == TRIGGER_PIN) {
-        //batch upload here
-      } else if (pin_triggered == OLED_BUTTON) {
-        display_and_sleep(&display); 
-      }
+      //int pin_triggered = log(esp_sleep_get_ext1_wakeup_status())/log(2);
+      display_and_sleep(&display); 
+      sendOnESPNow();
     } else if (wakeup_reason == ESP_SLEEP_WAKEUP_TIMER) {
       //save sensor values
     } else { // usually on device startup
@@ -97,7 +106,6 @@ void setup() {
   //Entering sleep
   go_to_sleep(device_mode_wifi);
 }
-
 
 void go_to_sleep(bool wifi_mode) {
   /*
@@ -111,6 +119,152 @@ void go_to_sleep(bool wifi_mode) {
   esp_sleep_enable_ext1_wakeup(WAKE_PIN_BITMASK,ESP_EXT1_WAKEUP_ANY_HIGH);
   esp_deep_sleep_start();
 }
+
+/////////////////////////// ESP Now Methods /////////////////////////
+void sendOnESPNow() {
+  /*
+   * Enable Access Point and send data on ESP Now
+   */
+  WiFi.mode(WIFI_STA);
+  InitESPNow();
+  esp_now_register_send_cb(OnDataSent);
+  ScanForSlave();
+  if (slave.channel == ESP_NOW_CHANNEL) { //check for correct channel; add peer
+    bool isPaired = manageSlave();
+    if (isPaired) {
+      uint8_t send_this = 12345;
+      sendData(send_this);
+    } else {
+      Serial.println("Slave pair failed!");
+    }
+  }
+}
+
+void InitESPNow() {
+  /*
+   * Just initialize the ESP Now
+   */
+  //EDIT not connected to wifi so no need to disconnect...
+  //WiFi.disconnect();
+  if (esp_now_init() == ESP_OK) {
+    Serial.println("ESPNow Init Success");
+  } else {
+    Serial.println("ESPNow Init Failed");
+    // InitESPNow(); then ESP.restart();
+  }
+}
+
+void ScanForSlave() {
+  /*
+   * Find all wifi networks and check if any of their SSIDs start with 
+   * "Slave"
+   */
+  int8_t scanResults = WiFi.scanNetworks();
+  if (scanResults == 0) {
+    Serial.println("No WiFi devices in AP Mode found");
+  } else {
+    Serial.print("Found "); Serial.print(scanResults); Serial.println(" devices ");
+    for (int i = 0; i < scanResults; ++i) {
+      // Print SSID and RSSI for each device found
+      String SSID = WiFi.SSID(i);
+      int32_t RSSI = WiFi.RSSI(i);
+      String BSSIDstr = WiFi.BSSIDstr(i);
+
+      delay(10);
+      // Check if the current device starts with `Slave`
+      if (SSID.indexOf("Slave") == 0) {
+        // SSID of interest
+        Serial.println("Found a Slave.");
+        Serial.print(i + 1); Serial.print(": "); Serial.print(SSID); Serial.print(" ["); Serial.print(BSSIDstr); Serial.print("]"); Serial.print(" ("); Serial.print(RSSI); Serial.print(")"); Serial.println("");
+        // Get BSSID => Mac Address of the Slave
+        int mac[6];
+        if ( 6 == sscanf(BSSIDstr.c_str(), "%x:%x:%x:%x:%x:%x",  &mac[0], &mac[1], &mac[2], &mac[3], &mac[4], &mac[5] ) ) {
+          for (int ii = 0; ii < 6; ++ii ) {
+            slave.peer_addr[ii] = (uint8_t) mac[ii];
+          }
+        }
+
+        slave.channel = ESP_NOW_CHANNEL; // pick a channel
+        slave.encrypt = 0; // no encryption
+
+        Serial.println("Slave found!");
+        WiFi.scanDelete();
+        return; // only one listener, so break after finding the first one
+      }
+    }
+  }
+
+  Serial.println("Slave Not Found, trying again.");
+  WiFi.scanDelete();
+}
+
+bool manageSlave() {
+  /*
+   * Check if slave is already paired with master; else pair
+   */
+  Serial.print("Slave Status: ");
+  if (esp_now_is_peer_exist(slave.peer_addr)) { // Slave already paired.
+    Serial.println("Already Paired");
+    return true;
+  } else { // Slave not paired, attempt pair
+    esp_err_t addStatus = esp_now_add_peer(&slave);
+    return debug_ESP_error(addStatus);
+  }
+}
+
+// send data
+void sendData(uint8_t data_to_send) {
+  const uint8_t *peer_addr = slave.peer_addr;
+  Serial.print("Sending: "); Serial.println(data_to_send);
+  esp_err_t result = esp_now_send(peer_addr, &data_to_send, sizeof(data_to_send));
+  Serial.print("Send Status: ");
+  debug_ESP_error(result);
+}
+
+void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status) {
+  char macStr[18];
+  snprintf(macStr, sizeof(macStr), "%02x:%02x:%02x:%02x:%02x:%02x",
+           mac_addr[0], mac_addr[1], mac_addr[2], mac_addr[3], mac_addr[4], mac_addr[5]);
+  Serial.print("Last Packet Sent to: "); Serial.println(macStr);
+  Serial.print("Last Packet Send Status: "); Serial.println(status == ESP_NOW_SEND_SUCCESS ? "Delivery Success" : "Delivery Fail");
+}
+
+bool debug_ESP_error(esp_err_t err) {
+  /*
+   * Just look at the error value and print the message corresponding to it
+   */
+  if (err == ESP_OK) {
+    Serial.println("Success");
+    return true;
+  } else if (err == ESP_ERR_ESPNOW_NOT_INIT) {
+    Serial.println("ESPNOW not Init.");
+    return false;
+  } else if (err == ESP_ERR_ESPNOW_ARG) {
+    Serial.println("Invalid Argument");
+    return false;
+  } else if (err == ESP_ERR_ESPNOW_INTERNAL) {
+    Serial.println("Internal Error");
+    return false;
+  } else if (err == ESP_ERR_ESPNOW_NO_MEM) {
+    Serial.println("Out of memory");
+    return false;
+  } else if (err == ESP_ERR_ESPNOW_NOT_FOUND) {
+    Serial.println("Peer not found.");
+    return false;
+  } else if (err == ESP_ERR_ESPNOW_FULL) {
+    Serial.println("Peer list full");
+    return false;
+  } else if (err == ESP_ERR_ESPNOW_EXIST) {
+    Serial.println("Peer Exists");
+    return true;
+  } else {
+    Serial.println("Not sure what happened");
+    return false;
+  }
+  
+}
+
+///////////////////////////Top level methods///////////////////////
 
 void boot_and_post_sensors() {
   /*
@@ -162,6 +316,9 @@ void push_back(float* a, float v, int a_len) {
    memcpy(&a[1], a, sizeof(a[0])*(a_len-1));
    a[0] = v;
 }
+
+
+/////////////////////////// Regular wifi methods /////////////////////////////
 
 void connect_to_server() {
   /*
@@ -218,6 +375,8 @@ String post_to_string(float measurement, String unit, bool incl_time, bool incl_
   json = json + "\"}";
   return json;
 }
+
+////////////////////// OLED control methods ////////////////////////////
 
 void show_wakeup(SH1106Wire* d, bool wifi_mode) {
   /*
