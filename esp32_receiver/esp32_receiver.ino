@@ -1,21 +1,6 @@
 /**
    ESPNOW - Basic communication - Slave - Arvind Ravulavaru <https://github.com/arvindr21>
 
-   Flow: Master
-   Step 1 : ESPNow Init on Master and set it in STA mode
-   Step 2 : Start scanning for Slave ESP32 (we have added a prefix of `slave` to the SSID of slave for an easy setup)
-   Step 3 : Once found, add Slave as peer
-   Step 4 : Register for send callback
-   Step 5 : Start Transmitting data from Master to Slave(s)
-
-   Flow: Slave
-   Step 1 : ESPNow Init on Slave
-   Step 2 : Update the SSID of Slave with a prefix of `slave`
-   Step 3 : Set Slave in AP mode
-   Step 4 : Register for receive callback and wait for data
-   Step 5 : Once data arrives, print it in the serial monitor
-
-   
   Sketch was initially producing errors for me. To fix this, I erased the 
   device's flash memory (https://github.com/espressif/esptool/issues/348)
   Just navigate to esptool.py (/Users/YourName/Library/Arduino15/packages/esp32...)
@@ -29,8 +14,14 @@
 #include "WiFi.h"
 
 #define CHANNEL 1
+#define BUTTON_PIN 16
+#define LED_PIN 17
+#define PWM_CHANNEL 1
+#define LED_FREQ 38000
+#define DUTY_CYCLE_RES 8
 
-///// this section of code should also be in the receiver!! ////////
+
+///// this section of code should also be in the sender!! ////////
 struct measurement {
   float min_value;
   float resolution;
@@ -48,6 +39,7 @@ Measurement temperature = {0.0, 0.01, "Celsius"};
 Measurement humidity = {0, 0.01, "Relative %"};
 ///////////////////////////////////////////////////////////
 
+
 // Init ESP Now with fallback
 void InitESPNow() {
   WiFi.disconnect();
@@ -56,9 +48,6 @@ void InitESPNow() {
   }
   else {
     Serial.println("ESPNow Init Failed");
-    // Retry InitESPNow, add a counte and then restart?
-    // InitESPNow();
-    // or Simply Restart
     ESP.restart();
   }
 }
@@ -82,22 +71,41 @@ void setup() {
   Serial.begin(115200);
   delay(1000);
   Serial.println("ESPNow/Basic/Slave Example");
+  
   //Set device in AP mode to begin with
   WiFi.mode(WIFI_AP);
-  // configure device AP mode
   configDeviceAP();
   // This is the mac address of the Slave in AP Mode
   Serial.print("AP MAC: "); 
   Serial.println(WiFi.softAPmacAddress());
-  // Init ESPNow with a fallback logic
   InitESPNow();
-  // Once ESPNow is successfully Init, we will register for recv CB to
-  // get recv packer info.
-  esp_now_register_recv_cb(OnDataRecv);
+  esp_now_register_recv_cb(OnDataRecv); //calls when any data is received
+
+  pinMode(BUTTON_PIN, INPUT);
+  pinMode(LED_PIN, OUTPUT);
+  ledcSetup(PWM_CHANNEL, LED_FREQ, DUTY_CYCLE_RES);
+  ledcAttachPin(LED_PIN, PWM_CHANNEL);
 }
 
-// callback when data is recv from Master
+void loop() {
+  /*
+   * Just wait for a button press, and activate 
+   */
+  while(!digitalRead(BUTTON_PIN)) { 
+    delay(10);
+  }
+  Serial.println("Button pressed!");
+  //modulate on and off at 38kHz
+  ledcWrite(PWM_CHANNEL, 128);
+  //digitalWrite(LED_PIN, HIGH);
+  delay(3000);
+  ledcWrite(PWM_CHANNEL, 0);
+}
+
 void OnDataRecv(const uint8_t *mac_addr, const uint8_t *data, int data_len) {
+  /*
+   * Called as an interrupt whenever data is received on ESP Now. 
+   */
   char macStr[18];
   snprintf(macStr, sizeof(macStr), "%02x:%02x:%02x:%02x:%02x:%02x",
            mac_addr[0], mac_addr[1], mac_addr[2], mac_addr[3], mac_addr[4], mac_addr[5]);
@@ -129,8 +137,4 @@ float short_to_float(SplitShort s, measurement m) {
    uint16_t v = (s.high << 8) + s.low;
    float x = v*m.resolution + m.min_value;
    return x;
-}
-
-void loop() {
-  // Chill
 }

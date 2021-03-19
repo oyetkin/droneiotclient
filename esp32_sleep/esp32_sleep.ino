@@ -197,7 +197,23 @@ void ESPNowBroadcast() {
   WiFi.mode(WIFI_STA);
   InitESPNow();
   esp_now_add_peer(&slave);
-  esp_now_send(slave.peer_addr, hum_data, 6);
+  //esp_now_send(slave.peer_addr, hum_data, ESP_NOW_MAX_DATA_LEN);
+  sendDataMulti(hum_data);
+}
+
+void sendDataMulti(uint8_t* a) {
+  /*
+   * Send the array a on ESP Now in multiple packets - because the max
+   * packet size is only 250 bytes. 
+   * Note that the math only works because a is a byte array!
+   */
+   int total_sent = 0;
+   while (total_sent < MAX_RECORDS) {
+    int remaining = MAX_RECORDS - total_sent;
+    Serial.print("Sending: "); Serial.println(a[total_sent]);
+    esp_now_send(slave.peer_addr, &a[total_sent], min(ESP_NOW_MAX_DATA_LEN, remaining));
+    total_sent += ESP_NOW_MAX_DATA_LEN;
+   }
 }
 
 void ESPNowToMac() {
