@@ -12,7 +12,7 @@
  * 
  * TODO: 
  *    --handle error on failure to init esp now
- *    --callback might be interrupting sleep?
+ *    --data rate stuff - https://www.esp32.com/viewtopic.php?t=12781
  *    
  */
 #include <Wire.h>  
@@ -31,7 +31,7 @@
 #define SCREEN_WIDTH 128 // OLED display width, in pixels
 #define SCREEN_HEIGHT 64 // OLED display height, in pixels
 #define OLED_RESET     -1 // Reset pin # (or -1 if sharing Arduino reset pin)
-#define ESP_NOW_CHANNEL 1
+#define ESP_NOW_CHANNEL 0
 
 #define WAKE_PIN_BITMASK 0x000006000 // 2^OLED_BUTTON + 2^TRIGGER_PIN in hex
 #define uS_TO_S_FACTOR 1000000ULL  /* Conversion factor for micro seconds to seconds */
@@ -59,7 +59,9 @@ RTC_DATA_ATTR float hum[MAX_RECORDS];
 RTC_DATA_ATTR float temp[MAX_RECORDS];
 RTC_DATA_ATTR float pres[MAX_RECORDS];
 bool device_mode_wifi; //1 for wifi, 0 for trigger
-esp_now_peer_info_t slave; //other ESP32 for listening to transmission
+//for ESP Now - MAC address, channel, encrypt - set MAC address to device or to broadcast address
+//esp_now_peer_info_t slave = {{0xFF, 0xFF,0xFF,0xFF,0xFF,0xFF}, ESP_NOW_CHANNEL, 0};
+esp_now_peer_info_t slave = {{0x9C, 0x9C, 0x1F, 0xC9, 0x50, 0x61}, ESP_NOW_CHANNEL, 0};
 
 void setup() {
   /*
@@ -73,9 +75,9 @@ void setup() {
 
   esp_sleep_wakeup_cause_t wakeup_reason = esp_sleep_get_wakeup_cause();
   if (wakeup_reason == ESP_SLEEP_WAKEUP_EXT1) {
-    Serial.print("Wakeup cause: interrupt.   ");
+    Serial.print("Wakeup cause: interrupt. ");
   } else if (wakeup_reason == ESP_SLEEP_WAKEUP_TIMER) {
-    Serial.print("Wakeup cause: timer.   ");
+    Serial.print("Wakeup cause: timer. ");
   }
   
   if (device_mode_wifi) {
@@ -85,7 +87,7 @@ void setup() {
       boot_and_post_sensors();
     } else if (wakeup_reason == ESP_SLEEP_WAKEUP_TIMER) {
       boot_and_post_sensors();
-    } else { // usually on device startup
+    } else { // on device startup
       show_wakeup(&display, device_mode_wifi);
       boot_and_post_sensors();
     }
@@ -94,16 +96,14 @@ void setup() {
     if (wakeup_reason == ESP_SLEEP_WAKEUP_EXT1) {
       //int pin_triggered = log(esp_sleep_get_ext1_wakeup_status())/log(2);
       display_and_sleep(&display); 
-      sendOnESPNow();
+      ESPNowBroadcast();
     } else if (wakeup_reason == ESP_SLEEP_WAKEUP_TIMER) {
-      //save sensor values
+      read_sensors();
     } else { // usually on device startup
-      //save sensors in array
       show_wakeup(&display, device_mode_wifi);
+      read_sensors();
     } 
   }
-  
-  //Entering sleep
   go_to_sleep(device_mode_wifi);
 }
 
@@ -121,22 +121,71 @@ void go_to_sleep(bool wifi_mode) {
 }
 
 /////////////////////////// ESP Now Methods /////////////////////////
-void sendOnESPNow() {
+void ESPNowBroadcast() {
   /*
-   * Enable Access Point and send data on ESP Now
+   * Send ESP Now data as a broadcast. Doesn't check for matching 
+   * Slave is set globally at the top of this script. Set the channel to 0. 
+   * The receiver channel does not have to be the same. 
+   * 
+   * We don't check for pairing success because in broadcast mode, adding 
+   * the "peer" (the broadcast address) is always successful. 
+   */
+  WiFi.mode(WIFI_STA);
+  InitESPNow();
+  esp_now_add_peer(&slave);
+  sendData(hum[0]);
+}
+
+void ESPNowToMac() {
+  /*
+   * Send ESP Now data to a specific, hard-coded MAC address. Does not
+   * scan WiFi networks, but does verify that a listening device with
+   * the mac address exists. 
+   * Pairing failure is not currently handled. 
+   */
+  WiFi.mode(WIFI_STA);
+  InitESPNow();
+  if (slave.channel == ESP_NOW_CHANNEL) { //check for correct channel; add peer
+    Serial.print("Slave Status: ");
+    esp_err_t addStatus = esp_now_add_peer(&slave);
+    if (debug_ESP_error(addStatus)) { //this also prints the status
+      Serial.println("Slave is paired");
+      uint8_t send_this = 12345;
+      sendData(send_this);
+    } else {
+      Serial.println("Slave pair failed!");
+    }
+  } else {
+    Serial.println("Non matching slave channel!");
+  }
+}
+
+void defaultESPSend() {
+  /*
+   * Send on ESP Now using the logic from the standard sketch:
+   * Scan for networks; find an SSID that contains "Slave:", 
+   * get that network's MAC address, set that as the slave, 
+   * add it as a peer, and then send data. 
+   * 
+   * Set the channel to the receiver's channel number in the script
+   * 
+   * Note that the callback DOES interrupt sleep!
    */
   WiFi.mode(WIFI_STA);
   InitESPNow();
   esp_now_register_send_cb(OnDataSent);
   ScanForSlave();
   if (slave.channel == ESP_NOW_CHANNEL) { //check for correct channel; add peer
-    bool isPaired = manageSlave();
-    if (isPaired) {
+    Serial.print("Slave Status: ");
+    esp_err_t addStatus = esp_now_add_peer(&slave);
+    if (debug_ESP_error(addStatus)) { //this also prints the status
       uint8_t send_this = 12345;
       sendData(send_this);
     } else {
       Serial.println("Slave pair failed!");
     }
+  } else {
+    Serial.println("Non matching slave channel!");
   }
 }
 
@@ -144,20 +193,18 @@ void InitESPNow() {
   /*
    * Just initialize the ESP Now
    */
-  //EDIT not connected to wifi so no need to disconnect...
   //WiFi.disconnect();
   if (esp_now_init() == ESP_OK) {
     Serial.println("ESPNow Init Success");
   } else {
     Serial.println("ESPNow Init Failed");
-    // InitESPNow(); then ESP.restart();
   }
 }
 
 void ScanForSlave() {
   /*
    * Find all wifi networks and check if any of their SSIDs start with 
-   * "Slave"
+   * "Slave". Use it to update the global slave object - peer_addr, channel
    */
   int8_t scanResults = WiFi.scanNetworks();
   if (scanResults == 0) {
@@ -170,7 +217,7 @@ void ScanForSlave() {
       int32_t RSSI = WiFi.RSSI(i);
       String BSSIDstr = WiFi.BSSIDstr(i);
 
-      delay(10);
+      //delay(10);
       // Check if the current device starts with `Slave`
       if (SSID.indexOf("Slave") == 0) {
         // SSID of interest
@@ -193,30 +240,17 @@ void ScanForSlave() {
       }
     }
   }
-
   Serial.println("Slave Not Found, trying again.");
   WiFi.scanDelete();
 }
 
-bool manageSlave() {
-  /*
-   * Check if slave is already paired with master; else pair
-   */
-  Serial.print("Slave Status: ");
-  if (esp_now_is_peer_exist(slave.peer_addr)) { // Slave already paired.
-    Serial.println("Already Paired");
-    return true;
-  } else { // Slave not paired, attempt pair
-    esp_err_t addStatus = esp_now_add_peer(&slave);
-    return debug_ESP_error(addStatus);
-  }
-}
 
-// send data
 void sendData(uint8_t data_to_send) {
-  const uint8_t *peer_addr = slave.peer_addr;
+  /*
+   * Send data to the receiver/slave address
+   */
   Serial.print("Sending: "); Serial.println(data_to_send);
-  esp_err_t result = esp_now_send(peer_addr, &data_to_send, sizeof(data_to_send));
+  esp_err_t result = esp_now_send(slave.peer_addr, &data_to_send, sizeof(data_to_send));
   Serial.print("Send Status: ");
   debug_ESP_error(result);
 }
@@ -271,13 +305,29 @@ void boot_and_post_sensors() {
    * Call this when the sensor is booted by time. Activates a wifi connection, 
    * loads the sensors, gets their readings, and posts the data. 
    */
-  //initialize wifi and servers 
+  read_sensors();
+
+  //Connect to wifi and get the time
+  connect_to_server();
+  configTime(0, 0, ntpServer);
+
+  //Now post all to the server
+  int response_1 = http.POST(post_to_string(temp[0], "Celsius", true, true));
+  int response_2 = http.POST(post_to_string(hum[0], "RH%", true, true));
+  int response_3 = http.POST(post_to_string(pres[0], "Pa", true, true));
+  if ((response_1 != 200) or (response_2 != 200) or (response_3 != 200)) {
+    Serial.println("HTTP Post error");
+  }
+}
+
+void read_sensors() {
+  /*
+   * Read the sensor values and print to the serial. 
+   */
   if (!bme.begin(0x76)) {
     Serial.println("Could not find a valid BME sensor!");
     go_to_sleep(1);
   }
-
-  //Now read the sensors
   Serial.println("Read sensors");
   delay(2000);
   float curr_hum = bme.readHumidity();
@@ -294,16 +344,6 @@ void boot_and_post_sensors() {
   Serial.println("Humidity (RH%): " + String(curr_hum));
   Serial.println("Temperature (C): " + String(curr_temp));
   Serial.println("Pressure (Pa): " + String(curr_pres));
-
-  //Post all values separately and report error
-  connect_to_server();
-  configTime(0, 0, ntpServer);
-  int response_1 = http.POST(post_to_string(curr_temp, "Celsius", true, true));
-  int response_2 = http.POST(post_to_string(curr_hum, "RH%", true, true));
-  int response_3 = http.POST(post_to_string(curr_pres, "Pa", true, true));
-  if ((response_1 != 200) or (response_2 != 200) or (response_3 != 200)) {
-    Serial.println("HTTP Post error");
-  }
 }
 
 void push_back(float* a, float v, int a_len) {
