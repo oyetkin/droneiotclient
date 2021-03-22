@@ -12,11 +12,15 @@
  * cf = ctypes.cdll.LoadLibrary('/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation')
  * Reference: https://forum.arduino.cc/index.php?topic=702144.0
  * 
+ * Set the board to "Generic ESP 8266 Module"
+ * 
  * Libraries to install:
  * -Wire should be built in
  * -Adafruit Unified Sensor
  * -Adafruit BME280
  * -ESP8266 and ESP32 OLED Driver for SSD1306 Displays
+ * -ESP8266Wifi and ESP8266HTTPClient should be built-in.
+ * -time should be built-in
  * 
  * Pins:
  * D1 to SCL pins of OLED, and BME
