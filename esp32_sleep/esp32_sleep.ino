@@ -26,16 +26,16 @@
 
 // PINOUTS
 #define DEVICE_MODE_SELECT_PIN GPIO_NUM_27
-#define TRIGGER_PIN GPIO_NUM_14
-#define OLED_BUTTON GPIO_NUM_13 //must be one of the RTC gpios
+#define TRIGGER_PIN GPIO_NUM_14 //remote trigger circuit read from this pin 
+#define OLED_BUTTON GPIO_NUM_13 //trigger button read from this pin
 #define SCREEN_WIDTH 128 // OLED display width, in pixels
 #define SCREEN_HEIGHT 64 // OLED display height, in pixels
 #define OLED_RESET     -1 // Reset pin # (or -1 if sharing Arduino reset pin)
 #define ESP_NOW_CHANNEL 0
 
 #define WAKE_PIN_BITMASK 0x000006000 // 2^OLED_BUTTON + 2^TRIGGER_PIN in hex
-#define uS_TO_S_FACTOR 1000000ULL  /* Conversion factor for micro seconds to seconds */
-#define MAX_RECORDS 298 //298 is exactly enough for 3 float arrays (each having 298 elements)
+#define uS_TO_S_FACTOR 1000000ULL  // Conversion factor for micro seconds to seconds
+#define MAX_RECORDS 298 // total readings for EACH of the sensor data. won't compile if too high
 
 #define TIME_TO_SLEEP  30 //time to sleep in seconds
 #define DISPLAY_LEN 2000 //time to show OLED in millis
