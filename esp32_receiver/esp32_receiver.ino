@@ -91,7 +91,9 @@ void loop() {
     ledcWrite(PWM_CHANNEL, 0);
   } else if (upload) {
     Serial.println("Upload pressed!");
-    //batch upload to Otto's server...
+    if (connect_to_server()) {
+      //batch upload to Otto's server...
+    }
   }
 }
 
@@ -122,7 +124,7 @@ void configDeviceAP() {
   }
 }
 
-void connect_to_server() {
+bool connect_to_server() {
   /*
    * Connect to the wifi and Otto's server
    */
@@ -135,12 +137,13 @@ void connect_to_server() {
     counter++;
     if (counter > MAX_WIFI_RETRIES) {
       Serial.println("Failed to connect!");
-      go_to_sleep(1);
+      return false;
     }
   }
   Serial.println("Connected to the WiFi network");
   http.begin(server);
   http.addHeader("Content-Type", "application/json");
+  return true;
 }
 
 String post_to_string(float measurement, String unit, bool incl_time, bool incl_location) {
@@ -170,6 +173,7 @@ void OnDataRecv(const uint8_t *mac_addr, const uint8_t *data, int data_len) {
   /*
    * Called as an interrupt whenever data is received on ESP Now. 
    */
+  ledcWrite(PWM_CHANNEL, 0); //stop firing the IR LED once the other ESP sends data
   char macStr[18];
   snprintf(macStr, sizeof(macStr), "%02x:%02x:%02x:%02x:%02x:%02x",
            mac_addr[0], mac_addr[1], mac_addr[2], mac_addr[3], mac_addr[4], mac_addr[5]);
