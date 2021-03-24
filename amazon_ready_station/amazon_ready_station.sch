@@ -60,10 +60,10 @@ Wire Wire Line
 Wire Wire Line
 	4350 3550 4650 3550
 $Comp
-L Connector:Conn_01x04_Female J3
+L Connector:Conn_01x04_Female BME280
 U 1 1 604E2AAF
 P 5900 4050
-F 0 "J3" H 5800 4350 50  0000 L CNN
+F 0 "BME280" H 5800 4350 50  0000 L CNN
 F 1 "BMP180 VIN GND SCL SDA" H 5500 4250 50  0000 L CNN
 F 2 "Connector_PinSocket_2.54mm:PinSocket_1x04_P2.54mm_Vertical" H 5900 4050 50  0001 C CNN
 F 3 "~" H 5900 4050 50  0001 C CNN
@@ -71,10 +71,10 @@ F 3 "~" H 5900 4050 50  0001 C CNN
 	1    0    0    -1  
 $EndComp
 $Comp
-L Connector:Conn_01x04_Female J4
+L Connector:Conn_01x04_Female J_OLED1
 U 1 1 604E4BCE
 P 5900 4950
-F 0 "J4" H 5900 4550 50  0000 L CNN
+F 0 "J_OLED1" H 5900 4550 50  0000 L CNN
 F 1 "SSD1306 GND VCC SCL SDA" H 5400 4650 50  0000 L CNN
 F 2 "Connector_PinSocket_2.54mm:PinSocket_1x04_P2.54mm_Vertical" H 5900 4950 50  0001 C CNN
 F 3 "~" H 5900 4950 50  0001 C CNN
@@ -126,10 +126,10 @@ F 3 "~" H 3800 5650 50  0001 C CNN
 	0    -1   -1   0   
 $EndComp
 $Comp
-L Switch:SW_Push SW_INT1
+L Switch:SW_Push SW_Trigger1
 U 1 1 604FFFBF
 P 3000 5650
-F 0 "SW_INT1" H 3046 5602 50  0000 R CNN
+F 0 "SW_Trigger1" H 3046 5602 50  0000 R CNN
 F 1 "SW_Push" H 3150 5500 50  0000 R CNN
 F 2 "Button_Switch_SMD:SW_Push_1P1T_NO_6x6mm_H9.5mm" H 3000 5850 50  0001 C CNN
 F 3 "~" H 3000 5850 50  0001 C CNN
@@ -255,10 +255,10 @@ F 3 "~" H 5450 5950 50  0001 C CNN
 	1    0    0    -1  
 $EndComp
 $Comp
-L Connector:Conn_01x04_Female J6
+L Connector:Conn_01x04_Female I2C1
 U 1 1 605AD1B2
 P 5950 3450
-F 0 "J6" H 5850 3750 50  0000 L CNN
+F 0 "I2C1" H 5850 3750 50  0000 L CNN
 F 1 "MISC VIN GND SCL SDA" H 5550 3650 50  0000 L CNN
 F 2 "Connector_PinSocket_2.54mm:PinSocket_1x04_P2.54mm_Vertical" H 5950 3450 50  0001 C CNN
 F 3 "~" H 5950 3450 50  0001 C CNN
@@ -554,10 +554,10 @@ Wire Wire Line
 Wire Wire Line
 	5350 4750 5700 4750
 $Comp
-L Switch:SW_Push SW_MOD1
+L Switch:SW_Push SW_Mode1
 U 1 1 6063A1F9
 P 3000 5350
-F 0 "SW_MOD1" H 3046 5302 50  0000 R CNN
+F 0 "SW_Mode1" H 3046 5302 50  0000 R CNN
 F 1 "SW_Push" H 3150 5200 50  0000 R CNN
 F 2 "Button_Switch_SMD:SW_Push_1P1T_NO_6x6mm_H9.5mm" H 3000 5550 50  0001 C CNN
 F 3 "~" H 3000 5550 50  0001 C CNN

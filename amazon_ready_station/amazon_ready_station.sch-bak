@@ -484,7 +484,7 @@ U 1 1 605C250F
 P 2850 4850
 F 0 "TP10" H 2800 5050 50  0000 L CNN
 F 1 "TestPoint" V 2950 4850 50  0000 L CNN
-F 2 "amazon_ready_station:pad_right" H 3050 4850 50  0001 C CNN
+F 2 "amazon_ready_station:pad_left" H 3050 4850 50  0001 C CNN
 F 3 "~" H 3050 4850 50  0001 C CNN
 	1    2850 4850
 	0    1    1    0   
@@ -495,7 +495,7 @@ U 1 1 605C4012
 P 2850 4750
 F 0 "TP9" H 2700 4950 50  0000 L CNN
 F 1 "TestPoint" V 2850 4900 50  0000 L CNN
-F 2 "amazon_ready_station:pad_left" H 3050 4750 50  0001 C CNN
+F 2 "amazon_ready_station:pad_right" H 3050 4750 50  0001 C CNN
 F 3 "~" H 3050 4750 50  0001 C CNN
 	1    2850 4750
 	0    1    1    0   
