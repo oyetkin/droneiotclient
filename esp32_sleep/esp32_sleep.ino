@@ -32,13 +32,14 @@
 #define SCREEN_HEIGHT 64 // OLED display height, in pixels
 #define OLED_RESET     -1 // Reset pin # (or -1 if sharing Arduino reset pin)
 #define ESP_NOW_CHANNEL 0
+#define DEBOUNCE_TIME 400 //n millis to wait between 2 button presses
 
-#define WAKE_PIN_BITMASK 0x000006000 // 2^OLED_BUTTON + 2^TRIGGER_PIN in hex
+#define WAKE_PIN_BITMASK 0x008006000 // 2^OLED_BUTTON + 2^TRIGGER_PIN in hex
 #define uS_TO_S_FACTOR 1000000ULL  // Conversion factor for micro seconds to seconds
 #define MAX_RECORDS 298 // total readings for EACH of the sensor data. won't compile if too high
 
 #define TIME_TO_SLEEP  30 //time to sleep in seconds
-#define DISPLAY_LEN 2000 //time to show OLED in millis
+#define DISPLAY_LEN 4000 //time to show OLED in millis; also controls time before OLED sleeps in mode select
 #define MAX_WIFI_RETRIES 20 //number of times to try connecting to wifi before giving up
 
 
@@ -79,10 +80,13 @@ Adafruit_BME280 bme;
 RTC_DATA_ATTR uint8_t hum_data[MAX_RECORDS];
 RTC_DATA_ATTR uint8_t temp_data[MAX_RECORDS];
 RTC_DATA_ATTR uint8_t pres_data[MAX_RECORDS];
-bool device_mode_wifi; //1 for wifi, 0 for trigger
+
+//state tracking
+RTC_DATA_ATTR bool device_mode_wifi; //1 for wifi, 0 for trigger
+
 //for ESP Now - MAC address, channel, encrypt - set MAC address to device or to broadcast address
-//esp_now_peer_info_t slave = {{0xFF, 0xFF,0xFF,0xFF,0xFF,0xFF}, ESP_NOW_CHANNEL, 0};
-esp_now_peer_info_t slave = {{0x9C, 0x9C, 0x1F, 0xC9, 0x50, 0x61}, ESP_NOW_CHANNEL, 0};
+esp_now_peer_info_t slave = {{0xFF, 0xFF,0xFF,0xFF,0xFF,0xFF}, ESP_NOW_CHANNEL, 0};
+//esp_now_peer_info_t slave = {{0x9C, 0x9C, 0x1F, 0xC9, 0x50, 0x61}, ESP_NOW_CHANNEL, 0};
 
 void setup() {
   /*
@@ -91,17 +95,21 @@ void setup() {
   Serial.begin(115200);
   delay(1000);
   Serial.println("Wake up");
-  pinMode(DEVICE_MODE_SELECT_PIN, INPUT);
-  device_mode_wifi = digitalRead(DEVICE_MODE_SELECT_PIN);
 
+  //get and report wakeup cause
   esp_sleep_wakeup_cause_t wakeup_reason = esp_sleep_get_wakeup_cause();
   if (wakeup_reason == ESP_SLEEP_WAKEUP_EXT1) {
     Serial.print("Wakeup cause: interrupt. ");
   } else if (wakeup_reason == ESP_SLEEP_WAKEUP_TIMER) {
     Serial.print("Wakeup cause: timer. ");
   }
-  
-  if (device_mode_wifi) {
+
+  //check if we want to change the mode, and change it. 
+  int pin_triggered = log(esp_sleep_get_ext1_wakeup_status())/log(2);
+  if (pin_triggered == DEVICE_MODE_SELECT_PIN) {
+    mode_select(&display); // this also sends us to sleep
+    go_to_sleep(device_mode_wifi);
+  } else if (device_mode_wifi) {
     Serial.println("Mode: Wifi");
     if (wakeup_reason == ESP_SLEEP_WAKEUP_EXT1) { // either trigger or button
       display_and_sleep(&display);
@@ -115,7 +123,6 @@ void setup() {
   } else {
     Serial.println("Mode: Trigger");
     if (wakeup_reason == ESP_SLEEP_WAKEUP_EXT1) {
-      //int pin_triggered = log(esp_sleep_get_ext1_wakeup_status())/log(2);
       display_and_sleep(&display); 
       ESPNowBroadcast();
     } else if (wakeup_reason == ESP_SLEEP_WAKEUP_TIMER) {
@@ -129,6 +136,39 @@ void setup() {
 }
 
 ///////////////////////////Top level methods///////////////////////
+
+void mode_select(SH1106Wire* d) {
+  /*
+   * Call when the device is woken by the mode select pin. Activates the OLED
+   * and allows the user to select the mode. Exits after a few seconds idle.
+   */
+  Serial.println("Press to select mode, currently " + mode_to_str(device_mode_wifi));
+  pinMode(DEVICE_MODE_SELECT_PIN, INPUT);
+  unsigned long start_time = millis();
+  unsigned long debounce = millis();
+  //turn on the display and show the current mode
+  d->init();
+  d->flipScreenVertically();
+  d->clear();
+  d->setTextAlignment(TEXT_ALIGN_LEFT);
+  d->setFont(ArialMT_Plain_16);
+  d->drawString(0, 12, "Mode: " + mode_to_str(device_mode_wifi));
+  d->display();
+  while (millis() - start_time <= DISPLAY_LEN) {
+    //if button is pressed, change mode and restart timer
+    if (digitalRead(DEVICE_MODE_SELECT_PIN) && millis() - debounce >= DEBOUNCE_TIME) {
+      device_mode_wifi = 1 - device_mode_wifi;
+      Serial.println("Button pressed. Mode is: " + mode_to_str(device_mode_wifi));
+      d->clear();
+      d->drawString(0, 12, "Mode: " + mode_to_str(device_mode_wifi));
+      d->display();
+      start_time = millis();
+      debounce = start_time;
+    }
+  }
+  //turn off the OLED display
+  d->displayOff();
+}
 
 void read_sensors() {
   /*
@@ -197,23 +237,7 @@ void ESPNowBroadcast() {
   WiFi.mode(WIFI_STA);
   InitESPNow();
   esp_now_add_peer(&slave);
-  //esp_now_send(slave.peer_addr, hum_data, ESP_NOW_MAX_DATA_LEN);
   sendDataMulti(hum_data);
-}
-
-void sendDataMulti(uint8_t* a) {
-  /*
-   * Send the array a on ESP Now in multiple packets - because the max
-   * packet size is only 250 bytes. 
-   * Note that the math only works because a is a byte array!
-   */
-   int total_sent = 0;
-   while (total_sent < MAX_RECORDS) {
-    int remaining = MAX_RECORDS - total_sent;
-    Serial.print("Sending: "); Serial.println(a[total_sent]);
-    esp_now_send(slave.peer_addr, &a[total_sent], min(ESP_NOW_MAX_DATA_LEN, remaining));
-    total_sent += ESP_NOW_MAX_DATA_LEN;
-   }
 }
 
 void ESPNowToMac() {
@@ -242,8 +266,7 @@ void ESPNowToMac() {
 
 void go_to_sleep(bool wifi_mode) {
   /*
-   * Send the device to sleep. Wifi_mode controls which bitmask to use - if in wifi mode,
-   * it won't wake up from an external trigger.
+   * Send the device to sleep. Wifi_mode doesn't do anything currently.
    */
   Serial.println("Going to sleep now");
   delay(1000);
@@ -314,6 +337,20 @@ float short_to_float(SplitShort s, measurement m) {
 
 /////////////////////////// ESP METHODS /////////////////////////////////////
 
+void sendDataMulti(uint8_t* a) {
+  /*
+   * Send the array a on ESP Now in multiple packets - because the max
+   * packet size is only 250 bytes. 
+   * Note that the math only works because a is a byte array!
+   */
+   int total_sent = 0;
+   while (total_sent < MAX_RECORDS) {
+    int remaining = MAX_RECORDS - total_sent;
+    Serial.print("Sending: "); Serial.println(a[total_sent]);
+    esp_now_send(slave.peer_addr, &a[total_sent], min(ESP_NOW_MAX_DATA_LEN, remaining));
+    total_sent += ESP_NOW_MAX_DATA_LEN;
+   }
+}
 void defaultESPSend() {
   /*
    * Send on ESP Now using the logic from the standard sketch:
@@ -564,6 +601,17 @@ void display_readings(SH1106Wire* d, float h, float t, float p) {
   d->drawString(0, 28, "Temp: " + String(t) + "C");
   d->drawString(0, 44, "Pressure: " + String(p) + "Pa");
   d->display();
+}
+
+String mode_to_str(bool device_mode) {
+  /*
+   * Convert device mode to string
+   */
+  if (device_mode) {
+    return "WiFi";
+  } else {
+    return "Trigger";
+  }
 }
 
 void loop() {}
