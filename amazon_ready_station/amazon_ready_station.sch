@@ -34,21 +34,10 @@ F 3 "~" H 5100 3950 50  0001 C CNN
 	1    0    0    -1  
 $EndComp
 $Comp
-L power:PWR_FLAG #FLG02
-U 1 1 604AC76B
-P 4700 4750
-F 0 "#FLG02" H 4700 4825 50  0001 C CNN
-F 1 "PWR_FLAG" H 4700 4923 50  0000 C CNN
-F 2 "" H 4700 4750 50  0001 C CNN
-F 3 "~" H 4700 4750 50  0001 C CNN
-	1    4700 4750
-	1    0    0    -1  
-$EndComp
-$Comp
-L Connector:Conn_01x15_Female J1
+L Connector:Conn_01x15_Female ESP1
 U 1 1 604B94AB
 P 2150 4150
-F 0 "J1" H 2400 4050 50  0000 C CNN
+F 0 "ESP1" H 2400 4050 50  0000 C CNN
 F 1 "ESP 32 Left VIN GND to VP EN" V 2250 4100 50  0000 C CNN
 F 2 "Connector_PinSocket_2.54mm:PinSocket_1x15_P2.54mm_Vertical" H 2150 4150 50  0001 C CNN
 F 3 "~" H 2150 4150 50  0001 C CNN
@@ -56,9 +45,9 @@ F 3 "~" H 2150 4150 50  0001 C CNN
 	-1   0    0    1   
 $EndComp
 Wire Wire Line
-	4350 3850 4550 3850
+	4350 3850 4400 3850
 Wire Wire Line
-	4350 3550 4650 3550
+	4350 3550 4500 3550
 $Comp
 L Connector:Conn_01x04_Female BME280
 U 1 1 604E2AAF
@@ -71,10 +60,10 @@ F 3 "~" H 5900 4050 50  0001 C CNN
 	1    0    0    -1  
 $EndComp
 $Comp
-L Connector:Conn_01x04_Female J_OLED1
+L Connector:Conn_01x04_Female OLED1
 U 1 1 604E4BCE
 P 5900 4950
-F 0 "J_OLED1" H 5900 4550 50  0000 L CNN
+F 0 "OLED1" H 5900 4550 50  0000 L CNN
 F 1 "SSD1306 GND VCC SCL SDA" H 5400 4650 50  0000 L CNN
 F 2 "Connector_PinSocket_2.54mm:PinSocket_1x04_P2.54mm_Vertical" H 5900 4950 50  0001 C CNN
 F 3 "~" H 5900 4950 50  0001 C CNN
@@ -82,27 +71,23 @@ F 3 "~" H 5900 4950 50  0001 C CNN
 	1    0    0    -1  
 $EndComp
 $Comp
-L Connector:Conn_01x15_Female J5
+L Connector:Conn_01x15_Female ESP2
 U 1 1 604EB918
 P 4150 4150
-F 0 "J5" H 4042 3225 50  0000 C CNN
+F 0 "ESP2" H 4042 3225 50  0000 C CNN
 F 1 "ESP32 Right 3V3 GND to D22 D23" V 4250 4100 50  0000 C CNN
 F 2 "Connector_PinSocket_2.54mm:PinSocket_1x15_P2.54mm_Vertical" H 4150 4150 50  0001 C CNN
 F 3 "~" H 4150 4150 50  0001 C CNN
 	1    4150 4150
 	-1   0    0    1   
 $EndComp
-Text Label 4500 4750 0    50   ~ 0
+Text Label 4600 4750 0    50   ~ 0
 GND
 Text Label 4450 3850 0    50   ~ 0
 SDA
 Text Label 4450 3550 0    50   ~ 0
 SCL
-Text Label 4500 4850 0    50   ~ 0
-3V3
 Connection ~ 4450 4750
-Wire Wire Line
-	4450 4750 4700 4750
 $Comp
 L Device:R R1
 U 1 1 604D89C5
@@ -126,10 +111,10 @@ F 3 "~" H 3800 5650 50  0001 C CNN
 	0    -1   -1   0   
 $EndComp
 $Comp
-L Switch:SW_Push SW_Trigger1
+L Switch:SW_Push Trigger1
 U 1 1 604FFFBF
 P 3000 5650
-F 0 "SW_Trigger1" H 3046 5602 50  0000 R CNN
+F 0 "Trigger1" H 3046 5602 50  0000 R CNN
 F 1 "SW_Push" H 3150 5500 50  0000 R CNN
 F 2 "Button_Switch_SMD:SW_Push_1P1T_NO_6x6mm_H9.5mm" H 3000 5850 50  0001 C CNN
 F 3 "~" H 3000 5850 50  0001 C CNN
@@ -244,10 +229,10 @@ Wire Wire Line
 Wire Wire Line
 	4650 6400 3900 6400
 $Comp
-L Connector:Conn_01x03_Female J2
+L Connector:Conn_01x03_Female J_IR_REC1
 U 1 1 60683231
 P 5450 5950
-F 0 "J2" H 5478 5976 50  0000 L CNN
+F 0 "J_IR_REC1" H 5478 5976 50  0000 L CNN
 F 1 "IR_RECVR_GND_VIN_DAT" H 5478 5885 50  0000 L CNN
 F 2 "Connector_PinSocket_2.54mm:PinSocket_1x03_P2.54mm_Horizontal" H 5450 5950 50  0001 C CNN
 F 3 "~" H 5450 5950 50  0001 C CNN
@@ -285,8 +270,6 @@ Wire Wire Line
 Connection ~ 5550 4250
 Wire Wire Line
 	5550 4250 5700 4250
-Text Label 4800 3950 0    50   ~ 0
-3V3
 Wire Wire Line
 	4800 3950 4800 4850
 $Comp
@@ -383,7 +366,7 @@ Wire Wire Line
 Wire Wire Line
 	4450 4750 4450 5350
 Wire Wire Line
-	4350 4850 4650 4850
+	4350 4850 4400 4850
 Wire Wire Line
 	4800 3350 4800 3950
 Wire Wire Line
@@ -411,7 +394,6 @@ Wire Wire Line
 Connection ~ 5000 4250
 Wire Wire Line
 	5000 4250 5550 4250
-Connection ~ 4700 4750
 Wire Wire Line
 	5150 4150 5150 5050
 Wire Wire Line
@@ -420,10 +402,10 @@ Connection ~ 5150 4150
 Wire Wire Line
 	5150 4150 5450 4150
 $Comp
-L Connector:TestPoint TP1
+L Connector:TestPoint 3.3V1
 U 1 1 607606D6
 P 4950 3350
-F 0 "TP1" H 4900 3550 50  0000 L CNN
+F 0 "3.3V1" H 4900 3550 50  0000 L CNN
 F 1 "TestPoint" V 4850 3350 50  0000 L CNN
 F 2 "TestPoint:TestPoint_THTPad_D2.0mm_Drill1.0mm" H 5150 3350 50  0001 C CNN
 F 3 "~" H 5150 3350 50  0001 C CNN
@@ -436,10 +418,10 @@ Wire Wire Line
 	4950 3350 5150 3350
 Connection ~ 4950 3350
 $Comp
-L Connector:TestPoint TP2
+L Connector:TestPoint 3.3V2
 U 1 1 6076206D
 P 5150 3350
-F 0 "TP2" H 5100 3550 50  0000 L CNN
+F 0 "3.3V2" H 5100 3550 50  0000 L CNN
 F 1 "TestPoint" V 5050 3350 50  0000 L CNN
 F 2 "TestPoint:TestPoint_THTPad_D2.0mm_Drill1.0mm" H 5350 3350 50  0001 C CNN
 F 3 "~" H 5350 3350 50  0001 C CNN
@@ -448,10 +430,10 @@ F 3 "~" H 5350 3350 50  0001 C CNN
 $EndComp
 Connection ~ 5150 3350
 $Comp
-L Connector:TestPoint TP3
+L Connector:TestPoint GND1
 U 1 1 60762F17
 P 5300 4750
-F 0 "TP3" H 5250 4950 50  0000 L CNN
+F 0 "GND1" H 5250 4950 50  0000 L CNN
 F 1 "TestPoint" V 5200 4750 50  0000 L CNN
 F 2 "TestPoint:TestPoint_THTPad_D2.0mm_Drill1.0mm" H 5500 4750 50  0001 C CNN
 F 3 "~" H 5500 4750 50  0001 C CNN
@@ -462,10 +444,10 @@ Connection ~ 5300 4750
 Wire Wire Line
 	5300 4750 5350 4750
 $Comp
-L Connector:TestPoint TP6
+L Connector:TestPoint GND2
 U 1 1 6076314C
 P 5700 4750
-F 0 "TP6" H 5650 4950 50  0000 L CNN
+F 0 "GND2" H 5650 4950 50  0000 L CNN
 F 1 "TestPoint" V 5600 4750 50  0000 L CNN
 F 2 "TestPoint:TestPoint_THTPad_D2.0mm_Drill1.0mm" H 5900 4750 50  0001 C CNN
 F 3 "~" H 5900 4750 50  0001 C CNN
@@ -477,30 +459,6 @@ Text Label 2550 4850 0    50   ~ 0
 5VIN
 Text Label 2550 4750 0    50   ~ 0
 5VGD
-Connection ~ 2850 4850
-$Comp
-L Connector:TestPoint TP10
-U 1 1 605C250F
-P 2850 4850
-F 0 "TP10" H 2800 5050 50  0000 L CNN
-F 1 "TestPoint" V 2950 4850 50  0000 L CNN
-F 2 "amazon_ready_station:pad_left" H 3050 4850 50  0001 C CNN
-F 3 "~" H 3050 4850 50  0001 C CNN
-	1    2850 4850
-	0    1    1    0   
-$EndComp
-$Comp
-L Connector:TestPoint TP9
-U 1 1 605C4012
-P 2850 4750
-F 0 "TP9" H 2700 4950 50  0000 L CNN
-F 1 "TestPoint" V 2850 4900 50  0000 L CNN
-F 2 "amazon_ready_station:pad_right" H 3050 4750 50  0001 C CNN
-F 3 "~" H 3050 4750 50  0001 C CNN
-	1    2850 4750
-	0    1    1    0   
-$EndComp
-Connection ~ 2850 4750
 Wire Wire Line
 	2350 4750 1450 4650
 Connection ~ 2350 4750
@@ -508,10 +466,10 @@ Wire Wire Line
 	2350 4850 1450 5000
 Connection ~ 2350 4850
 $Comp
-L Connector:TestPoint TP8
+L Connector:TestPoint 5V_IN1
 U 1 1 605CDAFA
 P 1450 5000
-F 0 "TP8" H 1300 5200 50  0000 L CNN
+F 0 "5V_IN1" H 1300 5200 50  0000 L CNN
 F 1 "TestPoint" V 1450 5150 50  0000 L CNN
 F 2 "TestPoint:TestPoint_THTPad_D2.0mm_Drill1.0mm" H 1650 5000 50  0001 C CNN
 F 3 "~" H 1650 5000 50  0001 C CNN
@@ -519,18 +477,16 @@ F 3 "~" H 1650 5000 50  0001 C CNN
 	0    -1   -1   0   
 $EndComp
 $Comp
-L Connector:TestPoint TP7
+L Connector:TestPoint 5V_GD1
 U 1 1 605CE0C4
 P 1450 4650
-F 0 "TP7" H 1400 4850 50  0000 L CNN
+F 0 "5V_GD1" H 1400 4850 50  0000 L CNN
 F 1 "TestPoint" V 1550 4650 50  0000 L CNN
 F 2 "TestPoint:TestPoint_THTPad_D2.0mm_Drill1.0mm" H 1650 4650 50  0001 C CNN
 F 3 "~" H 1650 4650 50  0001 C CNN
 	1    1450 4650
 	0    -1   -1   0   
 $EndComp
-Wire Wire Line
-	4700 4750 4900 4750
 Wire Wire Line
 	4900 4750 4900 5850
 Wire Wire Line
@@ -554,10 +510,10 @@ Wire Wire Line
 Wire Wire Line
 	5350 4750 5700 4750
 $Comp
-L Switch:SW_Push SW_Mode1
+L Switch:SW_Push Mode1
 U 1 1 6063A1F9
 P 3000 5350
-F 0 "SW_Mode1" H 3046 5302 50  0000 R CNN
+F 0 "Mode1" H 3046 5302 50  0000 R CNN
 F 1 "SW_Push" H 3150 5200 50  0000 R CNN
 F 2 "Button_Switch_SMD:SW_Push_1P1T_NO_6x6mm_H9.5mm" H 3000 5550 50  0001 C CNN
 F 3 "~" H 3000 5550 50  0001 C CNN
@@ -569,10 +525,10 @@ Wire Wire Line
 Wire Wire Line
 	2800 5350 2700 5350
 $Comp
-L Connector:TestPoint TP5
+L Connector:TestPoint 5V_IN2
 U 1 1 60657975
 P 1450 5000
-F 0 "TP5" H 1300 5200 50  0000 L CNN
+F 0 "5V_IN2" H 1300 5200 50  0000 L CNN
 F 1 "TestPoint" V 1450 5150 50  0000 L CNN
 F 2 "TestPoint:TestPoint_THTPad_D2.0mm_Drill1.0mm" H 1650 5000 50  0001 C CNN
 F 3 "~" H 1650 5000 50  0001 C CNN
@@ -581,10 +537,10 @@ F 3 "~" H 1650 5000 50  0001 C CNN
 $EndComp
 Connection ~ 1450 5000
 $Comp
-L Connector:TestPoint TP4
+L Connector:TestPoint 5V_GD2
 U 1 1 60658198
 P 1450 4650
-F 0 "TP4" H 1300 4850 50  0000 L CNN
+F 0 "5V_GD2" H 1300 4850 50  0000 L CNN
 F 1 "TestPoint" V 1450 4800 50  0000 L CNN
 F 2 "TestPoint:TestPoint_THTPad_D2.0mm_Drill1.0mm" H 1650 4650 50  0001 C CNN
 F 3 "~" H 1650 4650 50  0001 C CNN
@@ -592,4 +548,92 @@ F 3 "~" H 1650 4650 50  0001 C CNN
 	1    0    0    -1  
 $EndComp
 Connection ~ 1450 4650
+$Comp
+L Device:R R5
+U 1 1 605D37E2
+P 4400 4000
+F 0 "R5" H 4470 4046 50  0000 L CNN
+F 1 "2400" H 4470 3955 50  0000 L CNN
+F 2 "Resistor_SMD:R_0805_2012Metric_Pad1.20x1.40mm_HandSolder" V 4330 4000 50  0001 C CNN
+F 3 "~" H 4400 4000 50  0001 C CNN
+	1    4400 4000
+	1    0    0    -1  
+$EndComp
+Connection ~ 4400 3850
+Wire Wire Line
+	4400 3850 4550 3850
+Wire Wire Line
+	4400 4150 4400 4850
+Connection ~ 4400 4850
+Wire Wire Line
+	4400 4850 4500 4850
+$Comp
+L Device:R R6
+U 1 1 605D9489
+P 4500 4350
+F 0 "R6" H 4570 4396 50  0000 L CNN
+F 1 "2400" H 4570 4305 50  0000 L CNN
+F 2 "Resistor_SMD:R_0805_2012Metric_Pad1.20x1.40mm_HandSolder" V 4430 4350 50  0001 C CNN
+F 3 "~" H 4500 4350 50  0001 C CNN
+	1    4500 4350
+	1    0    0    -1  
+$EndComp
+Wire Wire Line
+	4500 3550 4500 4200
+Connection ~ 4500 3550
+Wire Wire Line
+	4500 3550 4650 3550
+Connection ~ 4500 4850
+Wire Wire Line
+	4500 4850 4650 4850
+Wire Wire Line
+	4500 4500 4500 4850
+$Comp
+L Mechanical:MountingHole H2
+U 1 1 6062E33E
+P 3000 2350
+F 0 "H2" H 3100 2396 50  0000 L CNN
+F 1 "MountingHole" H 3100 2305 50  0000 L CNN
+F 2 "MountingHole:MountingHole_2.2mm_M2" H 3000 2350 50  0001 C CNN
+F 3 "~" H 3000 2350 50  0001 C CNN
+	1    3000 2350
+	1    0    0    -1  
+$EndComp
+$Comp
+L Mechanical:MountingHole H3
+U 1 1 6062E7A6
+P 3800 2300
+F 0 "H3" H 3900 2346 50  0000 L CNN
+F 1 "MountingHole" H 3900 2255 50  0000 L CNN
+F 2 "MountingHole:MountingHole_2.2mm_M2" H 3800 2300 50  0001 C CNN
+F 3 "~" H 3800 2300 50  0001 C CNN
+	1    3800 2300
+	1    0    0    -1  
+$EndComp
+$Comp
+L Mechanical:MountingHole H4
+U 1 1 6062E97D
+P 3800 2650
+F 0 "H4" H 3900 2696 50  0000 L CNN
+F 1 "MountingHole" H 3900 2605 50  0000 L CNN
+F 2 "MountingHole:MountingHole_2.2mm_M2" H 3800 2650 50  0001 C CNN
+F 3 "~" H 3800 2650 50  0001 C CNN
+	1    3800 2650
+	1    0    0    -1  
+$EndComp
+$Comp
+L Mechanical:MountingHole H1
+U 1 1 6062EB1C
+P 2950 2650
+F 0 "H1" H 3050 2696 50  0000 L CNN
+F 1 "MountingHole" H 3050 2605 50  0000 L CNN
+F 2 "MountingHole:MountingHole_2.2mm_M2" H 2950 2650 50  0001 C CNN
+F 3 "~" H 2950 2650 50  0001 C CNN
+	1    2950 2650
+	1    0    0    -1  
+$EndComp
+Wire Wire Line
+	4450 4750 4900 4750
+Text Label 5350 3350 0    50   ~ 0
+3V3
 $EndSCHEMATC
