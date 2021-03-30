@@ -50,7 +50,7 @@
 #define DEBOUNCE_TIME 400 //n millis to wait between 2 button presses
 #define MAX_RECORDS 298 // total readings for EACH of the sensor data. won't compile if too high
 #define uS_TO_S_FACTOR 1000000ULL  // Conversion factor for micro seconds to seconds
-
+#define RECORD_SIZE 2 //n bytes in a single header; should accord with the other data stuff!
 
 ///// this section of code should also be in the receiver!! ////////
 struct measurement {
@@ -84,7 +84,7 @@ const char* server = "https://api.is-conic.com/api/v0p1/sensor/batch";
 const char* ntpServer = "pool.ntp.org";
 
 //DEVICE SETTINGS
-const String device_name = "Arjun_weather_kit";
+const String device_name = "Arjuns_kit";
 float lat = 32.636462;
 float lon = -117.095660;
 
@@ -97,12 +97,12 @@ RTC_DATA_ATTR uint8_t pres_data[MAX_RECORDS];
 uint8_t* all_data[3] = {temp_data, hum_data, pres_data}; //match the order of measurements variable above!
 
 //state tracking
-RTC_DATA_ATTR bool device_mode_wifi = 1; //1 for wifi, 0 for trigger
+RTC_DATA_ATTR bool device_mode_wifi = 0; //1 for wifi, 0 for trigger
 RTC_DATA_ATTR int n_cycles_recorded = 0;
 
 //for ESP Now - MAC address, channel, encrypt - set MAC address to device or to broadcast address
-esp_now_peer_info_t slave = {{0xFF, 0xFF,0xFF,0xFF,0xFF,0xFF}, ESP_NOW_CHANNEL, 0};
-//esp_now_peer_info_t slave = {{0x9C, 0x9C, 0x1F, 0xC9, 0x50, 0x61}, ESP_NOW_CHANNEL, 0};
+//esp_now_peer_info_t slave = {{0xFF, 0xFF,0xFF,0xFF,0xFF,0xFF}, ESP_NOW_CHANNEL, 0};
+esp_now_peer_info_t slave = {{0x9C, 0x9C, 0x1F, 0xC9, 0x50, 0x61}, ESP_NOW_CHANNEL, 0};
 
 void setup() {
   /*
@@ -110,6 +110,7 @@ void setup() {
    */
   Serial.begin(115200);
   delay(1000);
+
 
   //get and report wakeup cause
   esp_sleep_wakeup_cause_t wakeup_reason = esp_sleep_get_wakeup_cause();
@@ -128,7 +129,7 @@ void setup() {
   } else if (device_mode_wifi) {
     if (wakeup_reason == ESP_SLEEP_WAKEUP_EXT1) { // either trigger or button
       collect_and_post_sensors();
-      display_graph_and_sleep(&display);
+      display_graph(&display);
     } else if (wakeup_reason == ESP_SLEEP_WAKEUP_TIMER) {
       collect_and_post_sensors();
     } else { // on device startup
@@ -136,10 +137,10 @@ void setup() {
       collect_and_post_sensors();
     }
   } else {
-    if (wakeup_reason == ESP_SLEEP_WAKEUP_EXT1) {
-      display_graph_and_sleep(&display);
-      ESPNowBroadcast();
-    } else if (wakeup_reason == ESP_SLEEP_WAKEUP_TIMER) {
+    if (wakeup_reason == ESP_SLEEP_WAKEUP_EXT1) { //trigger
+      ESPNowToMac();
+      display_graph(&display);
+    } else if (wakeup_reason == ESP_SLEEP_WAKEUP_TIMER) { //timer
       read_sensors();
     } else { // on device startup
       show_wakeup(&display, device_mode_wifi);
@@ -257,7 +258,9 @@ void ESPNowBroadcast() {
   WiFi.mode(WIFI_STA);
   InitESPNow();
   esp_now_add_peer(&slave);
-  sendDataMulti(hum_data);
+  sendDataMulti(hum_data, temperature);
+  sendDataMulti(hum_data, humidity);
+  sendDataMulti(hum_data, pressure);
 }
 
 void ESPNowToMac() {
@@ -269,13 +272,15 @@ void ESPNowToMac() {
    */
   WiFi.mode(WIFI_STA);
   InitESPNow();
+  //esp_now_register_send_cb(OnDataSent); //for debugging
   if (slave.channel == ESP_NOW_CHANNEL) { //check for correct channel; add peer
     Serial.print("Slave Status: ");
     esp_err_t addStatus = esp_now_add_peer(&slave);
     if (debug_ESP_error(addStatus)) { //this also prints the status
       Serial.println("Slave is paired");
-      uint8_t send_this[2] = {17, 18};
-      esp_now_send(slave.peer_addr, send_this, sizeof(send_this));
+      sendDataMulti(hum_data, temperature);
+      sendDataMulti(hum_data, humidity);
+      sendDataMulti(hum_data, pressure);
     } else {
       Serial.println("Slave pair failed!");
     }
@@ -361,20 +366,28 @@ float short_to_float(SplitShort s, measurement m) {
 
 /////////////////////////// ESP METHODS /////////////////////////////////////
 
-void sendDataMulti(uint8_t* a) {
+//TODO: when device has logged less than max_records, don't send everything
+
+void sendDataMulti(uint8_t* a, Measurement m) {
   /*
    * Send the array a on ESP Now in multiple packets - because the max
    * packet size is only 250 bytes. 
    * Note that the math only works because a is a byte array!
    */
-   int total_sent = 0;
-   while (total_sent < MAX_RECORDS) {
-    int remaining = MAX_RECORDS - total_sent;
-    Serial.print("Sending: "); Serial.println(a[total_sent]);
-    esp_now_send(slave.peer_addr, &a[total_sent], min(ESP_NOW_MAX_DATA_LEN, remaining));
-    total_sent += ESP_NOW_MAX_DATA_LEN;
+   int total_sent = 0; //bytes of how much data you've sent so far
+   while (total_sent < MAX_RECORDS*RECORD_SIZE) {
+    int remaining = MAX_RECORDS*RECORD_SIZE - total_sent;
+    int data_len = min(ESP_NOW_MAX_DATA_LEN, remaining); // this is in bytes
+    Serial.println("Sending " + String(data_len) + " bytes of " + String(MAX_RECORDS*RECORD_SIZE));
+    esp_now_send(slave.peer_addr, &a[total_sent], data_len);
+    total_sent += data_len;
    }
 }
+
+void sendDescription(uint8_t* a, Measurement m) {
+
+}
+
 void defaultESPSend() {
   /*
    * Send on ESP Now using the logic from the standard sketch:
@@ -612,7 +625,7 @@ void show_wakeup(SH1106Wire* d, bool wifi_mode) {
   d->displayOff();
 }
 
-void display_graph_and_sleep(SH1106Wire* d) {
+void display_graph(SH1106Wire* d) {
   /*
    * Show a graph of all the senseor readings 
    */

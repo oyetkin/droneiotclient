@@ -12,27 +12,33 @@
 
 #include <esp_now.h>
 #include "WiFi.h"
+#include "HTTPClient.h"
 
-#define CHANNEL 1 //esp now transmission channel
-#define BUTTON_PIN 16 //for the trigger button
-#define LED_PIN 17 //output gpio for the led
+#define CHANNEL 1 //esp now transmission channel, anything from 1-16
+#define TRIGGER_PIN GPIO_NUM_16 //for the trigger button
+#define LED_PIN GPIO_NUM_17 //output gpio for the led
+#define UPLOAD_PIN GPIO_NUM_23 //button that activates uploading when pressed
 #define PWM_CHANNEL 1 //anything from 1-16
 #define LED_FREQ 38000 //pwm modulation frequency, depends on receiver hardware
 #define DUTY_CYCLE_RES 8 //keep at 8 bits, we don't need better resolution
-#define UPLOAD_PIN 23 //button that activates uploading when pressed
 #define MAX_WIFI_RETRIES 20 //number of times to try connecting to wifi before giving up
+#define LED_ON_TIME 3000 //how long to turn on the IR LEDs in millis
 
 const char* ssid = "ATT5yX6g8p";
 const char* password =  "35fcs6hyi#yj";
-const char* server = "https://api.is-conic.com/api/v0p1/sensor";
-
+const char* server = "https://api.is-conic.com/api/v0p1/sensor/batch";
+HTTPClient http;
 
 ///// this section of code should also be in the sender!! ////////
 #define MAX_RECORDS 298 // data size of the floats
 struct measurement {
-  float min_value;
-  float resolution;
-  String unit;
+  float min_value; //min recordable by senseor
+  float resolution; //sensor resolution
+  String unit; //e.g. "Celsius"
+  String type; //e.g. "temperature"
+  float graph_lower; //lowest value to display on graph
+  float graph_upper; //highest value for graph
+  String hardware_name; //optionally, hardware used to collect the measurement
 };
 typedef struct measurement Measurement;
 //16-bit value divided into 2 8-bit values
@@ -41,21 +47,21 @@ struct split_short {
   uint8_t low;
 };
 typedef struct split_short SplitShort;
+
 Measurement pressure = {100000.0, 1.0, "Pa"};
 Measurement temperature = {0.0, 0.01, "Celsius"};
 Measurement humidity = {0, 0.01, "Relative %"};
+Measurement measurements[3] = {temperature, humidity, pressure};
 
-float* pressure_data;
-float* temperature_data;
-float* humidity_data;
-
-
+float temperature_data[MAX_RECORDS];
+float humidity_data[MAX_RECORDS];
+float pressure_data[MAX_RECORDS];
+int n_records_recd = 0;
 
 ////////////////// begin the code    //////////////////////
 void setup() {
   Serial.begin(115200);
   delay(1000);
-  Serial.println("ESPNow/Basic/Slave Example");
   
   //Set device in AP mode to begin with
   WiFi.mode(WIFI_AP);
@@ -66,7 +72,7 @@ void setup() {
   InitESPNow();
   esp_now_register_recv_cb(OnDataRecv); //calls when any data is received
 
-  pinMode(BUTTON_PIN, INPUT);
+  pinMode(TRIGGER_PIN, INPUT);
   pinMode(LED_PIN, OUTPUT);
   ledcSetup(PWM_CHANNEL, LED_FREQ, DUTY_CYCLE_RES);
   ledcAttachPin(LED_PIN, PWM_CHANNEL);
@@ -80,19 +86,31 @@ void loop() {
   bool upload = false;
   while(!trigger && !upload) { 
     delay(10);
-    trigger = digitalRead(BUTTON_PIN);
+    trigger = digitalRead(TRIGGER_PIN);
     upload = digitalRead(UPLOAD_PIN);
   }
   if (trigger) {
     Serial.println("Trigger pressed!");
+    n_records_recd = 0;
     //activate the LED pwm pin
     ledcWrite(PWM_CHANNEL, 128);
-    delay(3000);
+    delay(LED_ON_TIME);
     ledcWrite(PWM_CHANNEL, 0);
   } else if (upload) {
     Serial.println("Upload pressed!");
     if (connect_to_server()) {
-      //batch upload to Otto's server...
+      int response_1 = http.POST(multi_posts_from_array(
+        "arjun_test", temperature_data, 10, temperature, false, false));
+      int response_2 = http.POST(multi_posts_from_array(
+        "arjun_test", humidity_data, 10, humidity, false, false));
+      int response_3 = http.POST(multi_posts_from_array(
+        "arjun_test", pressure_data, 10, pressure, false, false));
+      if (response_1 != 200) {
+        Serial.println("HTTP Post error");
+      } else {
+        Serial.println("Successfully posted.");
+      }
+      http.end();
     }
   }
 }
@@ -126,10 +144,9 @@ void configDeviceAP() {
 
 bool connect_to_server() {
   /*
-   * Connect to the wifi and Otto's server
+   * Connect to the wifi and Otto's server. Return true if successful
    */
   WiFi.begin(ssid, password);
-  Serial.println("Wifi has begun");
   int counter = 0;
   while (WiFi.status() != WL_CONNECTED) {
     delay(500);
@@ -146,21 +163,47 @@ bool connect_to_server() {
   return true;
 }
 
-String post_to_string(float measurement, String unit, bool incl_time, bool incl_location) {
+String multi_posts_from_array(String device_name, float* values, int n_values, Measurement m, bool incl_location, bool incl_hardware) {
+  /*
+   * Convert the array of input measurements into a json-style list
+   */
+  String out = "[";
+  for (int i = 0; i < n_values-1; i++) {
+    String post = create_post_string(device_name, values[i], m, incl_location, incl_hardware);
+    out = out + post + ", ";
+  }
+  String post = create_post_string(device_name, values[n_values-1], m, incl_location, incl_hardware);
+  out = out + post + "]";
+  return out;
+}
+
+
+String multi_post_string(String* posts, int n_posts) {
+  /*
+   * Take a set of json-formatted post strings (using create_post_string method) and combine
+   * them into a json-formatted list, in order to batch post them. 
+   */
+   String out = "[";
+   for (int i=0; i<n_posts-1; i++) {
+    out = out + posts[i] + ", ";
+   }
+   out = out + posts[n_posts-1] + "]";
+   return out;
+}
+
+String create_post_string(String device_name, float value, Measurement m, bool incl_location, bool incl_hardware) {
   /*
    * Convert the input measurement to a json-compatible string. 
    * The sensor name and location are hard-coded at the top of this sketch.
    */
-  String json = "{\"key\":\"" + sensor_name + "\",\"unit\":\"" + unit + "\",\"value\":\"" + String(measurement);
-  if (incl_time) {
-    //time_t now;
-    unsigned long curr_time = getTime();
-    if (curr_time > 0) {
-      json = json + "\",\"timestamp\":\"" + String(curr_time);
-    }
-  }
-  if (incl_location) {
-    json = json + "\",\"lat\":\"" + String(lat) + "\",\"lon\":\"" + String(lon);    
+  String json = "{\"key\":\"" + device_name + "\",\"measurement_name\":\"" + m.type;
+  json = json + "\",\"unit\":\"" + m.unit + "\",\"value\":\"" + String(value);
+
+  //if (incl_location) {
+  //  json = json + "\",\"lat\":\"" + String(lat) + "\",\"lon\":\"" + String(lon);    
+  //}
+  if (incl_hardware) {
+    json = json + "\",\"hardware\":\"" + m.hardware_name;
   }
   json = json + "\"}";
   return json;
@@ -177,10 +220,29 @@ void OnDataRecv(const uint8_t *mac_addr, const uint8_t *data, int data_len) {
   char macStr[18];
   snprintf(macStr, sizeof(macStr), "%02x:%02x:%02x:%02x:%02x:%02x",
            mac_addr[0], mac_addr[1], mac_addr[2], mac_addr[3], mac_addr[4], mac_addr[5]);
-  Serial.print("Last Packet Recv from: "); Serial.println(macStr);
-  float first_recd_float = float_from_data(data, humidity);
-  Serial.print("Last Packet Recv Data: "); Serial.println(first_recd_float);
-  Serial.println("");
+  Serial.print("Packet Recv from: "); Serial.println(macStr);
+
+  //Decide which array to use (without headers) from the packet number.
+  //Order of this must cohere with the sending order!
+  float* a = temperature_data;
+  Measurement m = temperature;
+  if ((n_records_recd >= MAX_RECORDS) && (n_records_recd < 2*MAX_RECORDS)) {
+    a = humidity_data;
+    m = humidity;
+    Serial.println("Using humidity");
+  } else if (n_records_recd >= 2*MAX_RECORDS) {
+    a = pressure_data;
+    m = pressure;
+    Serial.println("Using pressure");
+  }
+
+  for (int i=0; i < data_len; i++) {
+    SplitShort s = {data[i], data[i+1]};
+    a[n_records_recd + i/2] = short_to_float(s, m);
+  }
+  n_records_recd += data_len/2; //increment last position where receiving data
+  Serial.println(n_records_recd);
+  Serial.print("Most recent reading: "); Serial.println(temperature_data[0]);  
 }
 
 float float_from_data(const uint8_t* a, measurement m) {
