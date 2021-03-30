@@ -7,13 +7,11 @@
  * "ESP8266 and ESP32 OLED driver for SSD1306 displays"
  * "Adafruit BME280"
  * 
- * Connections:
- * 
- * 
  * TODO: 
+ *    --deep sleep issues: https://github.com/espressif/arduino-esp32/issues/1113
  *    --handle error on failure to init esp now
- *    --data rate stuff - https://www.esp32.com/viewtopic.php?t=12781
  *    --can clean up display_readings
+ *    
  */
 #include <Wire.h>  
 #include "WiFi.h"
@@ -23,30 +21,46 @@
 #include "SH1106Wire.h"
 #include "time.h"
 #include <esp_now.h>
+#include "driver/adc.h"
+#include "esp_wifi.h"
 
 // PINOUTS
 #define DEVICE_MODE_SELECT_PIN GPIO_NUM_27
 #define TRIGGER_PIN GPIO_NUM_14 //remote trigger circuit read from this pin 
 #define OLED_BUTTON GPIO_NUM_13 //trigger button read from this pin
+#define ESP_NOW_CHANNEL 0
+#define WAKE_PIN_BITMASK 0x008006000 // 2^OLED_BUTTON + 2^TRIGGER_PIN in hex
+
+//OLED STUFF
 #define SCREEN_WIDTH 128 // OLED display width, in pixels
 #define SCREEN_HEIGHT 64 // OLED display height, in pixels
 #define OLED_RESET     -1 // Reset pin # (or -1 if sharing Arduino reset pin)
-#define ESP_NOW_CHANNEL 0
+//how far is the axis away from the margin?
+#define POS_X_AXIS       5 
+#define POS_Y_AXIS       1
+#define TITLE_X 10
+#define TITLE_Y 6
 
-#define WAKE_PIN_BITMASK 0x000006000 // 2^OLED_BUTTON + 2^TRIGGER_PIN in hex
-#define uS_TO_S_FACTOR 1000000ULL  // Conversion factor for micro seconds to seconds
-#define MAX_RECORDS 298 // total readings for EACH of the sensor data. won't compile if too high
 
-#define TIME_TO_SLEEP  30 //time to sleep in seconds
+//OTHER CONFIGURABLE
+#define MAX_WIFI_RETRIES 30 //number of times to try connecting to wifi before giving up
+#define TIME_TO_SLEEP  60 //time to sleep in seconds
 #define DISPLAY_LEN 2000 //time to show OLED in millis
-#define MAX_WIFI_RETRIES 20 //number of times to try connecting to wifi before giving up
-
+#define MODE_SELECT_LEN 4000 //time after a button press that the device returns to sleep
+#define DEBOUNCE_TIME 400 //n millis to wait between 2 button presses
+#define MAX_RECORDS 298 // total readings for EACH of the sensor data. won't compile if too high
+#define uS_TO_S_FACTOR 1000000ULL  // Conversion factor for micro seconds to seconds
+#define RECORD_SIZE 2 //n bytes in a single header; should accord with the other data stuff!
 
 ///// this section of code should also be in the receiver!! ////////
 struct measurement {
-  float min_value;
-  float resolution;
-  String unit;
+  float min_value; //min recordable by senseor
+  float resolution; //sensor resolution
+  String unit; //e.g. "Celsius"
+  String type; //e.g. "temperature"
+  float graph_lower; //lowest value to display on graph
+  float graph_upper; //highest value for graph
+  String hardware_name; //optionally, hardware used to collect the measurement
 };
 typedef struct measurement Measurement;
 //16-bit value divided into 2 8-bit values
@@ -57,19 +71,20 @@ struct split_short {
 typedef struct split_short SplitShort;
 
 //make a measurement for each of your sensors. Max is ~65K increments.
-Measurement pressure = {100000.0, 1.0, "Pa"};
-Measurement temperature = {0.0, 0.01, "Celsius"};
-Measurement humidity = {0, 0.01, "Relative %"};
+Measurement pressure = {100000.0, 1.0, "Pa", "pressure", 90000, 110000, "BME280"};
+Measurement temperature = {0.0, 0.01, "Celsius", "temperature", 15, 35, "BME280"};
+Measurement humidity = {0, 0.01, "Relative %", "humidity", 30, 100, "BME280"};
+Measurement measurements[3] = {temperature, humidity, pressure};
 ////////////////////
 
 //WIFI SETTINGS
 const char* ssid = "ATT5yX6g8p";
 const char* password =  "35fcs6hyi#yj";
-const char* server = "https://api.is-conic.com/api/v0p1/sensor";
+const char* server = "https://api.is-conic.com/api/v0p1/sensor/batch";
 const char* ntpServer = "pool.ntp.org";
 
 //DEVICE SETTINGS
-const String sensor_name = "Arjun_weather_kit";
+const String device_name = "Arjuns_kit";
 float lat = 32.636462;
 float lon = -117.095660;
 
@@ -79,7 +94,12 @@ Adafruit_BME280 bme;
 RTC_DATA_ATTR uint8_t hum_data[MAX_RECORDS];
 RTC_DATA_ATTR uint8_t temp_data[MAX_RECORDS];
 RTC_DATA_ATTR uint8_t pres_data[MAX_RECORDS];
-bool device_mode_wifi; //1 for wifi, 0 for trigger
+uint8_t* all_data[3] = {temp_data, hum_data, pres_data}; //match the order of measurements variable above!
+
+//state tracking
+RTC_DATA_ATTR bool device_mode_wifi = 0; //1 for wifi, 0 for trigger
+RTC_DATA_ATTR int n_cycles_recorded = 0;
+
 //for ESP Now - MAC address, channel, encrypt - set MAC address to device or to broadcast address
 //esp_now_peer_info_t slave = {{0xFF, 0xFF,0xFF,0xFF,0xFF,0xFF}, ESP_NOW_CHANNEL, 0};
 esp_now_peer_info_t slave = {{0x9C, 0x9C, 0x1F, 0xC9, 0x50, 0x61}, ESP_NOW_CHANNEL, 0};
@@ -90,22 +110,26 @@ void setup() {
    */
   Serial.begin(115200);
   delay(1000);
-  Serial.println("Wake up");
-  pinMode(DEVICE_MODE_SELECT_PIN, INPUT);
-  device_mode_wifi = digitalRead(DEVICE_MODE_SELECT_PIN);
 
+
+  //get and report wakeup cause
   esp_sleep_wakeup_cause_t wakeup_reason = esp_sleep_get_wakeup_cause();
   if (wakeup_reason == ESP_SLEEP_WAKEUP_EXT1) {
     Serial.print("Wakeup cause: interrupt. ");
   } else if (wakeup_reason == ESP_SLEEP_WAKEUP_TIMER) {
     Serial.print("Wakeup cause: timer. ");
   }
-  
-  if (device_mode_wifi) {
-    Serial.println("Mode: Wifi");
+  Serial.println("Mode: " + mode_to_str(device_mode_wifi));
+
+  //check if we want to change the mode, and change it. 
+  int pin_triggered = log(esp_sleep_get_ext1_wakeup_status())/log(2);
+  if (pin_triggered == DEVICE_MODE_SELECT_PIN) {
+    mode_select(&display); // this also sends us to sleep
+    go_to_sleep(device_mode_wifi);
+  } else if (device_mode_wifi) {
     if (wakeup_reason == ESP_SLEEP_WAKEUP_EXT1) { // either trigger or button
-      display_and_sleep(&display);
       collect_and_post_sensors();
+      display_graph(&display);
     } else if (wakeup_reason == ESP_SLEEP_WAKEUP_TIMER) {
       collect_and_post_sensors();
     } else { // on device startup
@@ -113,14 +137,12 @@ void setup() {
       collect_and_post_sensors();
     }
   } else {
-    Serial.println("Mode: Trigger");
-    if (wakeup_reason == ESP_SLEEP_WAKEUP_EXT1) {
-      //int pin_triggered = log(esp_sleep_get_ext1_wakeup_status())/log(2);
-      display_and_sleep(&display); 
-      ESPNowBroadcast();
-    } else if (wakeup_reason == ESP_SLEEP_WAKEUP_TIMER) {
+    if (wakeup_reason == ESP_SLEEP_WAKEUP_EXT1) { //trigger
+      ESPNowToMac();
+      display_graph(&display);
+    } else if (wakeup_reason == ESP_SLEEP_WAKEUP_TIMER) { //timer
       read_sensors();
-    } else { // usually on device startup
+    } else { // on device startup
       show_wakeup(&display, device_mode_wifi);
       read_sensors();
     } 
@@ -129,6 +151,39 @@ void setup() {
 }
 
 ///////////////////////////Top level methods///////////////////////
+
+void mode_select(SH1106Wire* d) {
+  /*
+   * Call when the device is woken by the mode select pin. Activates the OLED
+   * and allows the user to select the mode. Exits after a few seconds idle.
+   */
+  Serial.println("Press to select mode, currently " + mode_to_str(device_mode_wifi));
+  pinMode(DEVICE_MODE_SELECT_PIN, INPUT);
+  unsigned long start_time = millis();
+  unsigned long debounce = millis();
+  //turn on the display and show the current mode
+  d->init();
+  d->flipScreenVertically();
+  d->clear();
+  d->setTextAlignment(TEXT_ALIGN_LEFT);
+  d->setFont(ArialMT_Plain_16);
+  d->drawString(0, 12, "Mode: " + mode_to_str(device_mode_wifi));
+  d->display();
+  while (millis() - start_time <= MODE_SELECT_LEN) {
+    //if button is pressed, change mode and restart timer
+    if (digitalRead(DEVICE_MODE_SELECT_PIN) && millis() - debounce >= DEBOUNCE_TIME) {
+      device_mode_wifi = 1 - device_mode_wifi;
+      Serial.println("Button pressed. Mode is: " + mode_to_str(device_mode_wifi));
+      d->clear();
+      d->drawString(0, 12, "Mode: " + mode_to_str(device_mode_wifi));
+      d->display();
+      start_time = millis();
+      debounce = start_time;
+    }
+  }
+  //turn off the OLED display
+  d->displayOff();
+}
 
 void read_sensors() {
   /*
@@ -160,6 +215,8 @@ void read_sensors() {
   Serial.println("Humidity (RH%): " + String(curr_hum));
   Serial.println("Temperature (C): " + String(curr_temp));
   Serial.println("Pressure (Pa): " + String(curr_pres));
+
+  n_cycles_recorded ++;
 }
 
 void collect_and_post_sensors() {
@@ -174,15 +231,19 @@ void collect_and_post_sensors() {
   configTime(0, 0, ntpServer);
 
   //Now post all to the server
-  float temp = float_from_data(temp_data, temperature);
-  float hum = float_from_data(hum_data, humidity);
-  float pres = float_from_data(pres_data, pressure);
-  int response_1 = http.POST(post_to_string(temp, temperature.unit, true, true));
-  int response_2 = http.POST(post_to_string(hum, humidity.unit, true, true));
-  int response_3 = http.POST(post_to_string(pres, pressure.unit, true, true));
-  if ((response_1 != 200) or (response_2 != 200) or (response_3 != 200)) {
+  float temp = last_float_from_data(temp_data, temperature);
+  float hum = last_float_from_data(hum_data, humidity);
+  float pres = last_float_from_data(pres_data, pressure);
+  
+  String posts[3] = {create_post_string(temp, temperature, true, true, true), 
+                      create_post_string(hum, humidity, true, true, true),
+                      create_post_string(pres, pressure, true, true, true)};
+  Serial.println(multi_post_string(posts, 3));
+  int response = http.POST(multi_post_string(posts, 3));
+  if (response != 200) {
     Serial.println("HTTP Post error");
   }
+  http.end();
 }
 
 void ESPNowBroadcast() {
@@ -197,23 +258,9 @@ void ESPNowBroadcast() {
   WiFi.mode(WIFI_STA);
   InitESPNow();
   esp_now_add_peer(&slave);
-  //esp_now_send(slave.peer_addr, hum_data, ESP_NOW_MAX_DATA_LEN);
-  sendDataMulti(hum_data);
-}
-
-void sendDataMulti(uint8_t* a) {
-  /*
-   * Send the array a on ESP Now in multiple packets - because the max
-   * packet size is only 250 bytes. 
-   * Note that the math only works because a is a byte array!
-   */
-   int total_sent = 0;
-   while (total_sent < MAX_RECORDS) {
-    int remaining = MAX_RECORDS - total_sent;
-    Serial.print("Sending: "); Serial.println(a[total_sent]);
-    esp_now_send(slave.peer_addr, &a[total_sent], min(ESP_NOW_MAX_DATA_LEN, remaining));
-    total_sent += ESP_NOW_MAX_DATA_LEN;
-   }
+  sendDataMulti(hum_data, temperature);
+  sendDataMulti(hum_data, humidity);
+  sendDataMulti(hum_data, pressure);
 }
 
 void ESPNowToMac() {
@@ -225,13 +272,15 @@ void ESPNowToMac() {
    */
   WiFi.mode(WIFI_STA);
   InitESPNow();
+  //esp_now_register_send_cb(OnDataSent); //for debugging
   if (slave.channel == ESP_NOW_CHANNEL) { //check for correct channel; add peer
     Serial.print("Slave Status: ");
     esp_err_t addStatus = esp_now_add_peer(&slave);
     if (debug_ESP_error(addStatus)) { //this also prints the status
       Serial.println("Slave is paired");
-      uint8_t send_this[2] = {17, 18};
-      esp_now_send(slave.peer_addr, send_this, sizeof(send_this));
+      sendDataMulti(hum_data, temperature);
+      sendDataMulti(hum_data, humidity);
+      sendDataMulti(hum_data, pressure);
     } else {
       Serial.println("Slave pair failed!");
     }
@@ -242,12 +291,15 @@ void ESPNowToMac() {
 
 void go_to_sleep(bool wifi_mode) {
   /*
-   * Send the device to sleep. Wifi_mode controls which bitmask to use - if in wifi mode,
-   * it won't wake up from an external trigger.
+   * Send the device to sleep. Wifi_mode doesn't do anything currently.
    */
   Serial.println("Going to sleep now");
   delay(1000);
   Serial.flush(); 
+  //turn off adcs and wifi
+  adc_power_off();
+  WiFi.mode(WIFI_MODE_NULL);
+  esp_wifi_stop(); //this may not be necessary
   esp_sleep_enable_timer_wakeup(TIME_TO_SLEEP * uS_TO_S_FACTOR);
   esp_sleep_enable_ext1_wakeup(WAKE_PIN_BITMASK,ESP_EXT1_WAKEUP_ANY_HIGH);
   esp_deep_sleep_start();
@@ -290,7 +342,7 @@ SplitShort float_to_short(float v, measurement m) {
    return {xhigh, xlow};
 }
 
-float float_from_data(uint8_t* a, measurement m) {
+float last_float_from_data(uint8_t* a, measurement m) {
   /*
    * Go into the specified array which is made up of SplitShorts, 
    * and return the first element in float format.
@@ -313,6 +365,28 @@ float short_to_float(SplitShort s, measurement m) {
 }
 
 /////////////////////////// ESP METHODS /////////////////////////////////////
+
+//TODO: when device has logged less than max_records, don't send everything
+
+void sendDataMulti(uint8_t* a, Measurement m) {
+  /*
+   * Send the array a on ESP Now in multiple packets - because the max
+   * packet size is only 250 bytes. 
+   * Note that the math only works because a is a byte array!
+   */
+   int total_sent = 0; //bytes of how much data you've sent so far
+   while (total_sent < MAX_RECORDS*RECORD_SIZE) {
+    int remaining = MAX_RECORDS*RECORD_SIZE - total_sent;
+    int data_len = min(ESP_NOW_MAX_DATA_LEN, remaining); // this is in bytes
+    Serial.println("Sending " + String(data_len) + " bytes of " + String(MAX_RECORDS*RECORD_SIZE));
+    esp_now_send(slave.peer_addr, &a[total_sent], data_len);
+    total_sent += data_len;
+   }
+}
+
+void sendDescription(uint8_t* a, Measurement m) {
+
+}
 
 void defaultESPSend() {
   /*
@@ -398,7 +472,6 @@ void ScanForSlave() {
   WiFi.scanDelete();
 }
 
-
 void sendData(uint8_t data_to_send) {
   /*
    * Send data to the receiver/slave address
@@ -449,7 +522,6 @@ bool debug_ESP_error(esp_err_t err) {
     Serial.println("Not sure what happened");
     return false;
   }
-  
 }
 
 
@@ -461,7 +533,6 @@ void connect_to_server() {
    * Connect to the wifi and Otto's server
    */
   WiFi.begin(ssid, password);
-  Serial.println("Wifi has begun");
   int counter = 0;
   while (WiFi.status() != WL_CONNECTED) {
     delay(500);
@@ -492,12 +563,26 @@ unsigned long getTime() {
   return now;
 }
 
-String post_to_string(float measurement, String unit, bool incl_time, bool incl_location) {
+String multi_post_string(String* posts, int n_posts) {
+  /*
+   * Take a set of json-formatted post strings (using create_post_string method) and combine
+   * them into a json-formatted list, in order to batch post them. 
+   */
+   String out = "[";
+   for (int i=0; i<n_posts-1; i++) {
+    out = out + posts[i] + ", ";
+   }
+   out = out + posts[n_posts-1] + "]";
+   return out;
+}
+
+String create_post_string(float value, Measurement m, bool incl_time, bool incl_location, bool incl_hardware) {
   /*
    * Convert the input measurement to a json-compatible string. 
    * The sensor name and location are hard-coded at the top of this sketch.
    */
-  String json = "{\"key\":\"" + sensor_name + "\",\"unit\":\"" + unit + "\",\"value\":\"" + String(measurement);
+  String json = "{\"key\":\"" + device_name + "\",\"measurement_name\":\"" + m.type;
+  json = json + "\",\"unit\":\"" + m.unit + "\",\"value\":\"" + String(value);
   if (incl_time) {
     //time_t now;
     unsigned long curr_time = getTime();
@@ -507,6 +592,9 @@ String post_to_string(float measurement, String unit, bool incl_time, bool incl_
   }
   if (incl_location) {
     json = json + "\",\"lat\":\"" + String(lat) + "\",\"lon\":\"" + String(lon);    
+  }
+  if (incl_hardware) {
+    json = json + "\",\"hardware\":\"" + m.hardware_name;
   }
   json = json + "\"}";
   return json;
@@ -537,7 +625,67 @@ void show_wakeup(SH1106Wire* d, bool wifi_mode) {
   d->displayOff();
 }
 
-void display_and_sleep(SH1106Wire* d) {
+void display_graph(SH1106Wire* d) {
+  /*
+   * Show a graph of all the senseor readings 
+   */
+  Serial.println("Displaying graph");
+  d->init(); //OLED
+  d->flipScreenVertically();
+  d->setFont(ArialMT_Plain_10);
+
+  for (int i = 0; i<(sizeof(measurements)/sizeof(measurements[0])); i++) {
+    d->clear();
+    add_graph(d, all_data[i], measurements[i]);
+    d->display();
+    delay(DISPLAY_LEN);
+  }
+  
+  d->displayOff();
+}
+
+void add_graph(SH1106Wire* d, uint8_t* a, Measurement m) {
+  /*
+   * Plot the given array onto the graph
+   * Does not actually display anything yet - just adds the element to the OLED screen
+   */
+
+  d->drawString(TITLE_X, TITLE_Y, m.type);
+  d->drawLine(0, SCREEN_HEIGHT-POS_X_AXIS, SCREEN_WIDTH, SCREEN_HEIGHT-POS_X_AXIS); //x 
+  d->drawLine(POS_Y_AXIS, 0, POS_Y_AXIS, SCREEN_HEIGHT); //y
+  
+  float last_y = float_to_screen_y(short_to_float({a[0], a[1]}, m), m.graph_lower, m.graph_upper);;
+  float last_x = POS_Y_AXIS;
+  for (int i=1; i < min(MAX_RECORDS, n_cycles_recorded); i++) {
+    float x_pos = float_to_screen_x(i);
+    SplitShort s = {a[i*2], a[i*2 + 1]};
+    float y_pos = float_to_screen_y(short_to_float(s, m), m.graph_lower, m.graph_upper);
+    d->drawLine(last_x, last_y, x_pos, y_pos);
+    last_y = y_pos;
+    last_x = x_pos;
+  }
+}
+
+float float_to_screen_x(int i) {
+  /*
+   * Given the iteration of the data we are currently on, return the position on the screen
+   * that data point should be plotted
+   */
+  return map(i, 0, min(MAX_RECORDS, n_cycles_recorded)-1, POS_Y_AXIS, SCREEN_WIDTH);
+}
+
+float float_to_screen_y(float v, float min_value, float max_value) {
+  /*
+   * Given a float value and min/max values of a measurement, return
+   * the position on the y axis that the measurement would be plotted
+   * 
+   * currently does not handle negative values
+   */
+   float mapped = map(v, 0, max_value, POS_X_AXIS, SCREEN_HEIGHT);
+   return SCREEN_HEIGHT - mapped;
+}
+
+void display_last_reading_and_sleep(SH1106Wire* d) {
   /*
    * Call this when the sensor is booted by external trigger. 
    * Activate the OLED display, show readings, and then turn off the display.
@@ -546,9 +694,9 @@ void display_and_sleep(SH1106Wire* d) {
   d->flipScreenVertically();
   d->setFont(ArialMT_Plain_10);
   display_readings(d, 
-    float_from_data(hum_data, humidity), 
-    float_from_data(temp_data, temperature), 
-    float_from_data(pres_data, pressure));
+    last_float_from_data(hum_data, humidity), 
+    last_float_from_data(temp_data, temperature), 
+    last_float_from_data(pres_data, pressure));
   delay(DISPLAY_LEN);
   d->displayOff();
 }
@@ -564,6 +712,17 @@ void display_readings(SH1106Wire* d, float h, float t, float p) {
   d->drawString(0, 28, "Temp: " + String(t) + "C");
   d->drawString(0, 44, "Pressure: " + String(p) + "Pa");
   d->display();
+}
+
+String mode_to_str(bool device_mode) {
+  /*
+   * Convert device mode to string
+   */
+  if (device_mode) {
+    return "WiFi";
+  } else {
+    return "Trigger";
+  }
 }
 
 void loop() {}
