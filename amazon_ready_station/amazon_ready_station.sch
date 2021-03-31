@@ -231,12 +231,12 @@ Wire Wire Line
 $Comp
 L Connector:Conn_01x03_Female IR_REC1
 U 1 1 60683231
-P 5450 5950
-F 0 "IR_REC1" H 5478 5976 50  0000 L CNN
-F 1 "IR_RECVR_GND_VIN_DAT" H 5478 5885 50  0000 L CNN
-F 2 "Connector_PinSocket_2.54mm:PinSocket_1x03_P2.54mm_Horizontal" H 5450 5950 50  0001 C CNN
-F 3 "~" H 5450 5950 50  0001 C CNN
-	1    5450 5950
+P 6250 5950
+F 0 "IR_REC1" H 6278 5976 50  0000 L CNN
+F 1 "IR_RECVR_GND_VIN_DAT" H 6278 5885 50  0000 L CNN
+F 2 "Connector_PinSocket_2.54mm:PinSocket_1x03_P2.54mm_Vertical" H 6250 5950 50  0001 C CNN
+F 3 "~" H 6250 5950 50  0001 C CNN
+	1    6250 5950
 	1    0    0    -1  
 $EndComp
 $Comp
@@ -490,19 +490,17 @@ $EndComp
 Wire Wire Line
 	4900 4750 4900 5850
 Wire Wire Line
-	4900 5850 5250 5850
+	4900 5850 5600 5850
 Connection ~ 4900 4750
 Wire Wire Line
 	4900 4750 5050 4750
 Wire Wire Line
 	4750 4850 4750 5950
 Wire Wire Line
-	4750 5950 5250 5950
+	4750 5950 5000 5950
 Connection ~ 4750 4850
 Wire Wire Line
 	4750 4850 4800 4850
-Wire Wire Line
-	5250 6050 5250 6400
 Wire Wire Line
 	4950 6400 5250 6400
 Wire Wire Line
@@ -657,65 +655,56 @@ Wire Wire Line
 $Comp
 L Device:R R9
 U 1 1 6064E0C0
-P 7400 5300
-F 0 "R9" H 7470 5346 50  0000 L CNN
-F 1 "220" H 7470 5255 50  0000 L CNN
-F 2 "Resistor_SMD:R_0805_2012Metric_Pad1.20x1.40mm_HandSolder" V 7330 5300 50  0001 C CNN
-F 3 "~" H 7400 5300 50  0001 C CNN
-	1    7400 5300
+P 7400 4950
+F 0 "R9" H 7470 4996 50  0000 L CNN
+F 1 "220" H 7470 4905 50  0000 L CNN
+F 2 "Resistor_SMD:R_0805_2012Metric_Pad1.20x1.40mm_HandSolder" V 7330 4950 50  0001 C CNN
+F 3 "~" H 7400 4950 50  0001 C CNN
+	1    7400 4950
 	1    0    0    -1  
 $EndComp
 $Comp
 L Device:R R8
 U 1 1 6064EAB3
-P 6900 5300
-F 0 "R8" H 6970 5346 50  0000 L CNN
-F 1 "220" H 6970 5255 50  0000 L CNN
-F 2 "Resistor_SMD:R_0805_2012Metric_Pad1.20x1.40mm_HandSolder" V 6830 5300 50  0001 C CNN
-F 3 "~" H 6900 5300 50  0001 C CNN
-	1    6900 5300
+P 6900 4950
+F 0 "R8" H 6970 4996 50  0000 L CNN
+F 1 "220" H 6970 4905 50  0000 L CNN
+F 2 "Resistor_SMD:R_0805_2012Metric_Pad1.20x1.40mm_HandSolder" V 6830 4950 50  0001 C CNN
+F 3 "~" H 6900 4950 50  0001 C CNN
+	1    6900 4950
 	1    0    0    -1  
 $EndComp
 Wire Wire Line
 	5050 4750 5050 5450
-Wire Wire Line
-	5050 5450 6900 5450
 Connection ~ 5050 4750
 Wire Wire Line
 	5050 4750 5300 4750
-Wire Wire Line
-	6900 5450 7400 5450
-Connection ~ 6900 5450
 $Comp
 L Connector:Conn_01x02_Female LED1
 U 1 1 60659CCB
-P 7100 5050
-F 0 "LED1" H 7128 5026 50  0000 L CNN
-F 1 "AN CAT" H 7128 4935 50  0000 L CNN
-F 2 "Connector_PinSocket_2.54mm:PinSocket_1x02_P2.54mm_Vertical" H 7100 5050 50  0001 C CNN
-F 3 "~" H 7100 5050 50  0001 C CNN
-	1    7100 5050
+P 7100 5200
+F 0 "LED1" H 7128 5176 50  0000 L CNN
+F 1 "AN CAT" H 7128 5085 50  0000 L CNN
+F 2 "Connector_PinSocket_2.54mm:PinSocket_1x02_P2.54mm_Vertical" H 7100 5200 50  0001 C CNN
+F 3 "~" H 7100 5200 50  0001 C CNN
+	1    7100 5200
 	1    0    0    -1  
 $EndComp
 $Comp
 L Connector:Conn_01x02_Female LED2
 U 1 1 6065A556
-P 7600 5050
-F 0 "LED2" H 7628 5026 50  0000 L CNN
-F 1 "ANO CAT" H 7628 4935 50  0000 L CNN
-F 2 "Connector_PinSocket_2.54mm:PinSocket_1x02_P2.54mm_Vertical" H 7600 5050 50  0001 C CNN
-F 3 "~" H 7600 5050 50  0001 C CNN
-	1    7600 5050
+P 7600 5200
+F 0 "LED2" H 7628 5176 50  0000 L CNN
+F 1 "ANO CAT" H 7628 5085 50  0000 L CNN
+F 2 "Connector_PinSocket_2.54mm:PinSocket_1x02_P2.54mm_Vertical" H 7600 5200 50  0001 C CNN
+F 3 "~" H 7600 5200 50  0001 C CNN
+	1    7600 5200
 	1    0    0    -1  
 $EndComp
 Wire Wire Line
 	7100 4800 6900 4800
 Wire Wire Line
-	6900 4800 6900 5050
-Wire Wire Line
 	7100 4800 7400 4800
-Wire Wire Line
-	7400 4800 7400 5050
 Connection ~ 7100 4800
 Wire Wire Line
 	4350 4250 4450 4250
@@ -737,4 +726,83 @@ F 3 "~" H 6650 4600 50  0001 C CNN
 	1    6650 4600
 	0    1    1    0   
 $EndComp
+$Comp
+L Sensor_Optical:S5971 TSOP382
+U 1 1 60653390
+P 6100 6700
+F 0 "TSOP382" V 6054 6878 50  0000 L CNN
+F 1 "1 2 3" V 6145 6878 50  0000 L CNN
+F 2 "TSOP38238:XDCR_TSOP38238" H 6100 7050 50  0001 C CNN
+F 3 "https://www.hamamatsu.com/resources/pdf/ssd/s5971_etc_kpin1025e.pdf" H 6100 6700 50  0001 C CNN
+	1    6100 6700
+	0    1    1    0   
+$EndComp
+Wire Wire Line
+	6050 6050 5250 6050
+Wire Wire Line
+	5250 6050 5250 6400
+Wire Wire Line
+	6100 6400 5250 6400
+Connection ~ 5250 6400
+Wire Wire Line
+	5600 5850 5600 6700
+Connection ~ 5600 5850
+Wire Wire Line
+	5600 5850 6050 5850
+$Comp
+L Device:R R10
+U 1 1 6068EEF5
+P 5350 7000
+F 0 "R10" V 5557 7000 50  0000 C CNN
+F 1 "200" V 5466 7000 50  0000 C CNN
+F 2 "Resistor_SMD:R_0805_2012Metric_Pad1.20x1.40mm_HandSolder" V 5280 7000 50  0001 C CNN
+F 3 "~" H 5350 7000 50  0001 C CNN
+	1    5350 7000
+	0    -1   -1   0   
+$EndComp
+Wire Wire Line
+	5200 7000 5000 7000
+Wire Wire Line
+	5000 7000 5000 5950
+Connection ~ 5000 5950
+Wire Wire Line
+	5000 5950 6050 5950
+Text Label 4800 5950 0    50   ~ 0
+3V3
+Text Label 5200 4850 0    50   ~ 0
+3V3
+Wire Wire Line
+	5600 6700 5700 6700
+Wire Wire Line
+	5500 7000 5700 7000
+$Comp
+L Device:CP C1
+U 1 1 606B0062
+P 5700 6850
+F 0 "C1" H 5582 6804 50  0000 R CNN
+F 1 "1u" H 5582 6895 50  0000 R CNN
+F 2 "Capacitor_Tantalum_SMD:CP_EIA-1608-08_AVX-J_Pad1.25x1.05mm_HandSolder" H 5738 6700 50  0001 C CNN
+F 3 "~" H 5700 6850 50  0001 C CNN
+	1    5700 6850
+	-1   0    0    1   
+$EndComp
+Connection ~ 5700 7000
+Wire Wire Line
+	5700 7000 6100 7000
+Connection ~ 5700 6700
+Wire Wire Line
+	5700 6700 5800 6700
+Wire Wire Line
+	5050 5450 6900 5450
+Wire Wire Line
+	6900 5100 6900 5200
+Wire Wire Line
+	6900 5300 6900 5450
+Connection ~ 6900 5450
+Wire Wire Line
+	6900 5450 7400 5450
+Wire Wire Line
+	7400 5300 7400 5450
+Wire Wire Line
+	7400 5100 7400 5200
 $EndSCHEMATC

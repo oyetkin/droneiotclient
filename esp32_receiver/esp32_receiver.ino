@@ -23,6 +23,7 @@
 #define DUTY_CYCLE_RES 8 //keep at 8 bits, we don't need better resolution
 #define MAX_WIFI_RETRIES 20 //number of times to try connecting to wifi before giving up
 #define LED_ON_TIME 3000 //how long to turn on the IR LEDs in millis
+#define INVALID_LOCATION -181.0 //invalid lat/lon
 
 const char* ssid = "ATT5yX6g8p";
 const char* password =  "35fcs6hyi#yj";
@@ -63,14 +64,8 @@ void setup() {
   Serial.begin(115200);
   delay(1000);
   
-  //Set device in AP mode to begin with
-  WiFi.mode(WIFI_AP);
-  configDeviceAP();
-  // This is the mac address of the Slave in AP Mode
-  Serial.print("AP MAC: "); 
-  Serial.println(WiFi.softAPmacAddress());
-  InitESPNow();
-  esp_now_register_recv_cb(OnDataRecv); //calls when any data is received
+  //Start off in ESP mode to begin with
+  setUpESPNow();
 
   pinMode(TRIGGER_PIN, INPUT);
   pinMode(LED_PIN, OUTPUT);
@@ -91,6 +86,7 @@ void loop() {
   }
   if (trigger) {
     Serial.println("Trigger pressed!");
+    setUpESPNow();
     n_records_recd = 0;
     //activate the LED pwm pin
     ledcWrite(PWM_CHANNEL, 128);
@@ -99,12 +95,14 @@ void loop() {
   } else if (upload) {
     Serial.println("Upload pressed!");
     if (connect_to_server()) {
+      
       int response_1 = http.POST(multi_posts_from_array(
-        "arjun_test", temperature_data, 10, temperature, false, false));
+        "arjun_test", temperature_data, 10, temperature, INVALID_LOCATION, INVALID_LOCATION, false));
       int response_2 = http.POST(multi_posts_from_array(
-        "arjun_test", humidity_data, 10, humidity, false, false));
+        "arjun_test", humidity_data, 10, humidity, INVALID_LOCATION, INVALID_LOCATION, false));
       int response_3 = http.POST(multi_posts_from_array(
-        "arjun_test", pressure_data, 10, pressure, false, false));
+        "arjun_test", pressure_data, 10, pressure, INVALID_LOCATION, INVALID_LOCATION, false));
+      
       if (response_1 != 200) {
         Serial.println("HTTP Post error");
       } else {
@@ -116,6 +114,42 @@ void loop() {
 }
 
 //////////////////ESP Now and Wifi connection stuff /////////////////////
+
+void setUpESPNow() {
+  /*
+   * Sets device in Access Point mode and configures other ESP Now stuff
+   */
+  WiFi.mode(WIFI_AP);
+  configDeviceAP();
+  Serial.print("AP MAC: "); Serial.println(WiFi.softAPmacAddress());
+  InitESPNow();
+  esp_now_register_recv_cb(OnDataRecv); //calls when any data is received
+}
+
+
+bool connect_to_server() {
+  /*
+   * Connect to the wifi and Otto's server. Return true if successful
+   */
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(ssid, password);
+  int counter = 0;
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.println("Connecting to WiFi..");
+    counter++;
+    if (counter > MAX_WIFI_RETRIES) {
+      Serial.println("Failed to connect!");
+      return false;
+    }
+  }
+  Serial.println("Connected to the WiFi network");
+  http.begin(server);
+  http.addHeader("Content-Type", "application/json");
+  return true;
+}
+
+/////////////////////////////////// Lower level ESP Now Stuff ///////////////////////////
 // Init ESP Now with fallback
 void InitESPNow() {
   WiFi.disconnect();
@@ -142,37 +176,18 @@ void configDeviceAP() {
   }
 }
 
-bool connect_to_server() {
-  /*
-   * Connect to the wifi and Otto's server. Return true if successful
-   */
-  WiFi.begin(ssid, password);
-  int counter = 0;
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-    Serial.println("Connecting to WiFi..");
-    counter++;
-    if (counter > MAX_WIFI_RETRIES) {
-      Serial.println("Failed to connect!");
-      return false;
-    }
-  }
-  Serial.println("Connected to the WiFi network");
-  http.begin(server);
-  http.addHeader("Content-Type", "application/json");
-  return true;
-}
+/////////////////////////////////// Lower level wifi post methods //////////////////////////////
 
-String multi_posts_from_array(String device_name, float* values, int n_values, Measurement m, bool incl_location, bool incl_hardware) {
+String multi_posts_from_array(String device_name, float* values, int n_values, Measurement m, float lat, float lon, bool incl_hardware) {
   /*
    * Convert the array of input measurements into a json-style list
    */
   String out = "[";
   for (int i = 0; i < n_values-1; i++) {
-    String post = create_post_string(device_name, values[i], m, incl_location, incl_hardware);
+    String post = create_post_string(device_name, values[i], m, lat, lon, incl_hardware);
     out = out + post + ", ";
   }
-  String post = create_post_string(device_name, values[n_values-1], m, incl_location, incl_hardware);
+  String post = create_post_string(device_name, values[n_values-1], m, lat, lon, incl_hardware);
   out = out + post + "]";
   return out;
 }
@@ -191,7 +206,7 @@ String multi_post_string(String* posts, int n_posts) {
    return out;
 }
 
-String create_post_string(String device_name, float value, Measurement m, bool incl_location, bool incl_hardware) {
+String create_post_string(String device_name, float value, Measurement m, float lat, float lon, bool incl_hardware) {
   /*
    * Convert the input measurement to a json-compatible string. 
    * The sensor name and location are hard-coded at the top of this sketch.
@@ -199,9 +214,9 @@ String create_post_string(String device_name, float value, Measurement m, bool i
   String json = "{\"key\":\"" + device_name + "\",\"measurement_name\":\"" + m.type;
   json = json + "\",\"unit\":\"" + m.unit + "\",\"value\":\"" + String(value);
 
-  //if (incl_location) {
-  //  json = json + "\",\"lat\":\"" + String(lat) + "\",\"lon\":\"" + String(lon);    
-  //}
+  if (lat != INVALID_LOCATION && lon != INVALID_LOCATION) {
+    json = json + "\",\"lat\":\"" + String(lat) + "\",\"lon\":\"" + String(lon);    
+  }
   if (incl_hardware) {
     json = json + "\",\"hardware\":\"" + m.hardware_name;
   }
