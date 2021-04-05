@@ -27,7 +27,7 @@
 const char* ssid = "ATT5yX6g8p"; // your wifi network name
 const char* password =  "35fcs6hyi#yj"; //your wifi password
 const char* server = "https://api.is-conic.com/api/v0p1/sensor/batch"; //the URL to post to your server
-const String device_name = "Arjuns_kit"; //name of your device
+const String device_name = "arjun_station"; //name of your device
 float lat = 32.636462; //the latitude of the location of the device
 float lon = -117.095660; //the latitude of the location of the device
 
@@ -88,6 +88,7 @@ RTC_DATA_ATTR uint8_t hum_data[MAX_RECORDS];
 RTC_DATA_ATTR uint8_t temp_data[MAX_RECORDS];
 RTC_DATA_ATTR uint8_t pres_data[MAX_RECORDS];
 uint8_t* all_data[3] = {temp_data, hum_data, pres_data}; //match the order of measurements variable above!
+uint8_t metadata[ESP_NOW_MAX_DATA_LEN];
 
 ////////////////////
 const char* ntpServer = "pool.ntp.org";
@@ -255,9 +256,9 @@ void ESPNowBroadcast() {
   WiFi.mode(WIFI_STA);
   InitESPNow();
   esp_now_add_peer(&slave);
-  sendDataMulti(hum_data, temperature);
-  sendDataMulti(hum_data, humidity);
-  sendDataMulti(hum_data, pressure);
+  sendDataMulti(temp_data, temperature);
+  //sendDataMulti(hum_data, humidity);
+  //sendDataMulti(pres_data, pressure);
 }
 
 void ESPNowToMac() {
@@ -274,9 +275,9 @@ void ESPNowToMac() {
     esp_err_t addStatus = esp_now_add_peer(&slave);
     if (debug_ESP_error(addStatus)) { //this also prints the status
       Serial.println("Slave is paired");
-      sendDataMulti(hum_data, temperature);
-      sendDataMulti(hum_data, humidity);
-      sendDataMulti(hum_data, pressure);
+      sendDataMulti(temp_data, temperature);
+      //sendDataMulti(hum_data, humidity);
+      //sendDataMulti(pres_data, pressure);
     } else {
       Serial.println("Slave pair failed!");
     }
@@ -372,26 +373,62 @@ float short_to_float(SplitShort s, measurement m) {
 
 /////////////////////////// ESP METHODS /////////////////////////////////////
 
-//TODO: when device has logged less than max_records, don't send everything
-
 void sendDataMulti(uint8_t* a, Measurement m) {
   /*
    * Send the array a on ESP Now in multiple packets - because the max
    * packet size is only 250 bytes. 
    * Note that the math only works because a is a byte array!
    */
-   int total_sent = 0; //bytes of how much data you've sent so far
-   while (total_sent < MAX_RECORDS*RECORD_SIZE) {
+  int total_sent = 0; //bytes of how much data you've sent so far
+  uint8_t *metadata = makeMetaData(m, MAX_RECORDS*RECORD_SIZE);
+  Serial.println("Sending metadata");
+  esp_now_send(slave.peer_addr, metadata, ESP_NOW_MAX_DATA_LEN);
+  Serial.println("Enter while loop");
+  while (total_sent < MAX_RECORDS*RECORD_SIZE) {
     int remaining = MAX_RECORDS*RECORD_SIZE - total_sent;
     int data_len = min(ESP_NOW_MAX_DATA_LEN, remaining); // this is in bytes
     Serial.println("Sending " + String(data_len) + " bytes of " + String(MAX_RECORDS*RECORD_SIZE));
+    Serial.println("Sending " + String(last_float_from_data(&a[total_sent], m)));
     esp_now_send(slave.peer_addr, &a[total_sent], data_len);
     total_sent += data_len;
    }
 }
 
-void sendDescription(uint8_t* a, Measurement m) {
+uint8_t* makeMetaData(Measurement m, int data_len) {
+  /*
+   * Send a metadata packet that includes the following info in the following order:
+   *    Sensor name (32 chars)
+   *    Lat and lon (two 4-byte floats)
+   *    Measurement name (32 chars)
+   *    Min measurement value (4-byte float)
+   *    Resolution (4-byte float)
+   *    Hardware name (32 chars)
+   *    N packets of data (2-byte int)
+   *  It accomplishes this by memcpy'ing each piece of information in the respective
+   *  positions. The receiver must contain code to read this metadata to function properly.
+   *  
+   *  data_len is the total number of bytes we will be sending after the metadata. 
+   */
+  const char* device_name_c = device_name.c_str();
+  const char* measurement_type_c = m.type.c_str();
+  const char* unit_c = m.unit.c_str();
+  const char* hardware_name_c = m.hardware_name.c_str();
 
+  memcpy(&metadata[0], device_name_c, min((size_t) 32, strlen(device_name_c)+1)); // name
+  memset(&metadata[31], 0, 1);
+  memcpy(&metadata[32], &lat, sizeof(float)); // lat
+  memcpy(&metadata[36], &lon, sizeof(float)); // lon
+  memcpy(&metadata[40], measurement_type_c, min((size_t) 32, strlen(measurement_type_c)+1)); // measurement type
+  memcpy(&metadata[72], unit_c, min((size_t) 32, strlen(unit_c))); // measurement type
+  memcpy(&metadata[104], &m.min_value, sizeof(float)); // min value
+  memcpy(&metadata[108], &m.resolution, sizeof(float)); // resolution
+  memcpy(&metadata[112], hardware_name_c, min((size_t) 32, strlen(hardware_name_c)+1)); // hardware name
+  
+  //round up by adding 1 if the division is not even
+  int n_packets = data_len/ESP_NOW_MAX_DATA_LEN + (data_len%ESP_NOW_MAX_DATA_LEN != 0); 
+  memcpy(&metadata[144], &n_packets, sizeof(int)); // n packets
+  Serial.println("Successfully created metadata");
+  return &metadata[0];
 }
 
 void defaultESPSend() {

@@ -8,11 +8,15 @@
   --baud 115200 --before default_reset --after hard_reset erase_flash ""
   Then it should start working
 
+  Libraries:
+  Dictionary by Anatoli Arkhipenko
+
 */
 
 #include <esp_now.h>
 #include "WiFi.h"
 #include "HTTPClient.h"
+#include <Dictionary.h>
 
 #define CHANNEL 1 //esp now transmission channel, anything from 1-16
 #define TRIGGER_PIN GPIO_NUM_16 //for the trigger button
@@ -21,9 +25,10 @@
 #define PWM_CHANNEL 1 //anything from 1-16
 #define LED_FREQ 38000 //pwm modulation frequency, depends on receiver hardware
 #define DUTY_CYCLE_RES 8 //keep at 8 bits, we don't need better resolution
-#define MAX_WIFI_RETRIES 20 //number of times to try connecting to wifi before giving up
+#define MAX_WIFI_RETRIES 10 //number of times to try connecting to wifi before giving up
 #define LED_ON_TIME 3000 //how long to turn on the IR LEDs in millis
 #define INVALID_LOCATION -181.0 //invalid lat/lon
+#define MAX_SENSORS 3 //maximum number of sensors we can read from at a time
 
 const char* ssid = "ATT5yX6g8p";
 const char* password =  "35fcs6hyi#yj";
@@ -37,11 +42,23 @@ struct measurement {
   float resolution; //sensor resolution
   String unit; //e.g. "Celsius"
   String type; //e.g. "temperature"
-  float graph_lower; //lowest value to display on graph
-  float graph_upper; //highest value for graph
   String hardware_name; //optionally, hardware used to collect the measurement
 };
 typedef struct measurement Measurement;
+
+struct record {
+  String mac_address;
+  String device_name;
+  float lat;
+  float lon;
+  Measurement m;
+  float* sensor_data;
+  int n_records_recd;
+};
+typedef struct record Record;
+
+Record all_records[MAX_SENSORS];
+
 //16-bit value divided into 2 8-bit values
 struct split_short {
   uint8_t high;
@@ -49,15 +66,7 @@ struct split_short {
 };
 typedef struct split_short SplitShort;
 
-Measurement pressure = {100000.0, 1.0, "Pa"};
-Measurement temperature = {0.0, 0.01, "Celsius"};
-Measurement humidity = {0, 0.01, "Relative %"};
-Measurement measurements[3] = {temperature, humidity, pressure};
-
-float temperature_data[MAX_RECORDS];
-float humidity_data[MAX_RECORDS];
-float pressure_data[MAX_RECORDS];
-int n_records_recd = 0;
+int n_sensors_received = 0;
 
 ////////////////// begin the code    //////////////////////
 void setup() {
@@ -87,7 +96,6 @@ void loop() {
   if (trigger) {
     Serial.println("Trigger pressed!");
     setUpESPNow();
-    n_records_recd = 0;
     //activate the LED pwm pin
     ledcWrite(PWM_CHANNEL, 128);
     delay(LED_ON_TIME);
@@ -96,12 +104,8 @@ void loop() {
     Serial.println("Upload pressed!");
     if (connect_to_server()) {
       
-      int response_1 = http.POST(multi_posts_from_array(
-        "arjun_test", temperature_data, 10, temperature, INVALID_LOCATION, INVALID_LOCATION, false));
-      int response_2 = http.POST(multi_posts_from_array(
-        "arjun_test", humidity_data, 10, humidity, INVALID_LOCATION, INVALID_LOCATION, false));
-      int response_3 = http.POST(multi_posts_from_array(
-        "arjun_test", pressure_data, 10, pressure, INVALID_LOCATION, INVALID_LOCATION, false));
+      int response_1 = 0; //http.POST(multi_posts_from_array(
+      //  "arjun_test", temperature_data, 10, temperature, INVALID_LOCATION, INVALID_LOCATION, false));
       
       if (response_1 != 200) {
         Serial.println("HTTP Post error");
@@ -113,67 +117,108 @@ void loop() {
   }
 }
 
-//////////////////ESP Now and Wifi connection stuff /////////////////////
 
-void setUpESPNow() {
+/////////////////////// Data receiving methods ///////////////////////////
+
+void OnDataRecv(const uint8_t *mac_addr, const uint8_t *data, int data_len) {
   /*
-   * Sets device in Access Point mode and configures other ESP Now stuff
+   * Called as an interrupt whenever data is received on ESP Now. 
    */
-  WiFi.mode(WIFI_AP);
-  configDeviceAP();
-  Serial.print("AP MAC: "); Serial.println(WiFi.softAPmacAddress());
-  InitESPNow();
-  esp_now_register_recv_cb(OnDataRecv); //calls when any data is received
+  ledcWrite(PWM_CHANNEL, 0); //stop firing the IR LED once the other ESP sends data
+  char macStr[18];
+  snprintf(macStr, sizeof(macStr), "%02x:%02x:%02x:%02x:%02x:%02x",
+           mac_addr[0], mac_addr[1], mac_addr[2], mac_addr[3], mac_addr[4], mac_addr[5]);
+  Serial.print("Packet Recv from: "); Serial.println(macStr);
+
+  int record_idx = find_record_by_mac(macStr);  
+  if (record_idx == -1) { //if we don't have this mac address, it is the first packet from a new device
+    Serial.println("Unpack sensor metadata");
+    decodeMetaData(data, macStr, data_len);
+  } else { //otherwise, it's data; get the parameters to interpret that data based on its mac address
+    Measurement m = all_records[record_idx].m;
+    float *a = all_records[record_idx].sensor_data;
+    int data_head = all_records[record_idx].n_records_recd;
+    Serial.println("Process sensor data using " + m.type);
+    
+    for (int i=0; i < data_len; i+=2) {
+      SplitShort s = {data[i], data[i+1]};
+      a[data_head + i/2] = short_to_float(s, m);
+    }
+    Serial.print("Most recent reading sent: "); Serial.println(a[data_head]);  
+    all_records[record_idx].n_records_recd += data_len/2; //increment last position where receiving data    
+  }
 }
 
-
-bool connect_to_server() {
+void decodeMetaData(const uint8_t *metadata, String mac_str, int data_len) {
   /*
-   * Connect to the wifi and Otto's server. Return true if successful
+   * Decode the metadata packet. Memcopies the metadata piece by piece
+   * into a set of variables. 
    */
-  WiFi.mode(WIFI_STA);
-  WiFi.begin(ssid, password);
-  int counter = 0;
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-    Serial.println("Connecting to WiFi..");
-    counter++;
-    if (counter > MAX_WIFI_RETRIES) {
-      Serial.println("Failed to connect!");
-      return false;
+  char my_device_name[32] = {};
+  float my_lat = -181.0;
+  float my_lon = -181.0;
+  float my_min_value = -181.0;
+  float my_resolution = -181.0;
+  char my_type[32] = {};
+  char my_unit[32] = {};
+  char my_hardware[32] = {};
+  int n_packets = 0;
+  
+  memcpy(&my_device_name[0], metadata, 32); // name
+  memcpy(&my_lat, &metadata[32], sizeof(float)); // lat
+  memcpy(&my_lon, &metadata[36], sizeof(float)); // lon
+  memcpy(&my_type[0], &metadata[40], 32); // name
+  memcpy(&my_unit[0], &metadata[72], 32); // name
+  memcpy(&my_min_value, &metadata[104], sizeof(float)); // lat
+  memcpy(&my_resolution, &metadata[108], sizeof(float)); // lon
+  memcpy(&my_hardware[0], &metadata[112], 32); // hardware
+  memcpy(&n_packets, &metadata[144], sizeof(int)); // n packets
+
+  Serial.println("Device name: " + String(my_device_name));
+  Serial.println("Location: " + String(my_lat) + ", " + String(my_lon));
+  Serial.println("Measurement: " + String(my_type) + ", " + String(my_unit));
+  Serial.println("Measurement min, res: " + String(my_min_value) + ", " + String(my_resolution));
+
+  //Use all this information to create a Record, containing a zero-instantiated data array
+  float data_array[MAX_RECORDS] = {0.0};
+  all_records[n_sensors_received] = {mac_str, my_device_name, my_lat, my_lon, 
+    {my_min_value, my_resolution, my_type, my_unit, my_hardware}, data_array};
+  n_sensors_received += 1;
+
+}
+
+int find_record_by_mac(String mac_to_match) {
+  /*
+   * Given a mac address, return the index of that record
+   */
+  for (int i=0; i<MAX_SENSORS; i++) {
+    if (all_records[i].mac_address.equals(mac_to_match)) {
+      return i;
     }
   }
-  Serial.println("Connected to the WiFi network");
-  http.begin(server);
-  http.addHeader("Content-Type", "application/json");
-  return true;
+  return -1;
 }
 
-/////////////////////////////////// Lower level ESP Now Stuff ///////////////////////////
-// Init ESP Now with fallback
-void InitESPNow() {
-  WiFi.disconnect();
-  if (esp_now_init() == ESP_OK) {
-    Serial.println("ESPNow Init Success");
-  } else {
-    Serial.println("ESPNow Init Failed");
-    ESP.restart();
-  }
+float float_from_data(const uint8_t* a, measurement m) {
+  /*
+   * Go into the specified array which is made up of SplitShorts, 
+   * and return the first element in float format.
+   * 
+   * example: float_from_short_array(hum_data, humidity)
+   */
+   SplitShort s = {a[0], a[1]};
+   return short_to_float(s, m);
 }
 
-// config AP SSID
-void configDeviceAP() {
-  String Prefix = "Slave:";
-  String Mac = WiFi.macAddress();
-  String ssid = Prefix + Mac;
-  Serial.println("SSID: " + Prefix + Mac);
-  String Password = "123456789";
-  bool result = WiFi.softAP(ssid.c_str(), Password.c_str(), CHANNEL, 0);
-  if (!result) {
-    Serial.println("AP Config failed.");
-  } else {
-    Serial.println("AP Config Success. Broadcasting with AP: " + String(ssid));
-  }
+float short_to_float(SplitShort s, measurement m) {
+  /*
+   * Given a measurement type and a short, convert the short we get
+   * from the internal representation of data to a float used
+   * for display. 
+   */
+   uint16_t v = (s.high << 8) + s.low;
+   float x = v*m.resolution + m.min_value;
+   return x;
 }
 
 /////////////////////////////////// Lower level wifi post methods //////////////////////////////
@@ -225,59 +270,65 @@ String create_post_string(String device_name, float value, Measurement m, float 
 }
 
 
-/////////////////////// Data receiving methods ///////////////////////////
 
-void OnDataRecv(const uint8_t *mac_addr, const uint8_t *data, int data_len) {
+//////////////////ESP Now and Wifi setup /////////////////////
+
+void setUpESPNow() {
   /*
-   * Called as an interrupt whenever data is received on ESP Now. 
+   * Sets device in Access Point mode and configures other ESP Now stuff
    */
-  ledcWrite(PWM_CHANNEL, 0); //stop firing the IR LED once the other ESP sends data
-  char macStr[18];
-  snprintf(macStr, sizeof(macStr), "%02x:%02x:%02x:%02x:%02x:%02x",
-           mac_addr[0], mac_addr[1], mac_addr[2], mac_addr[3], mac_addr[4], mac_addr[5]);
-  Serial.print("Packet Recv from: "); Serial.println(macStr);
-
-  //Decide which array to use (without headers) from the packet number.
-  //Order of this must cohere with the sending order!
-  float* a = temperature_data;
-  Measurement m = temperature;
-  if ((n_records_recd >= MAX_RECORDS) && (n_records_recd < 2*MAX_RECORDS)) {
-    a = humidity_data;
-    m = humidity;
-    Serial.println("Using humidity");
-  } else if (n_records_recd >= 2*MAX_RECORDS) {
-    a = pressure_data;
-    m = pressure;
-    Serial.println("Using pressure");
-  }
-
-  for (int i=0; i < data_len; i++) {
-    SplitShort s = {data[i], data[i+1]};
-    a[n_records_recd + i/2] = short_to_float(s, m);
-  }
-  n_records_recd += data_len/2; //increment last position where receiving data
-  Serial.println(n_records_recd);
-  Serial.print("Most recent reading: "); Serial.println(temperature_data[0]);  
+  WiFi.mode(WIFI_AP);
+  configDeviceAP();
+  Serial.print("AP MAC: "); Serial.println(WiFi.softAPmacAddress());
+  InitESPNow();
+  esp_now_register_recv_cb(OnDataRecv); //calls when any data is received
 }
 
-float float_from_data(const uint8_t* a, measurement m) {
+
+bool connect_to_server() {
   /*
-   * Go into the specified array which is made up of SplitShorts, 
-   * and return the first element in float format.
-   * 
-   * example: float_from_short_array(hum_data, humidity)
+   * Connect to the wifi and Otto's server. Return true if successful
    */
-   SplitShort s = {a[0], a[1]};
-   return short_to_float(s, m);
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(ssid, password);
+  int counter = 0;
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.println("Connecting to WiFi..");
+    counter++;
+    if (counter > MAX_WIFI_RETRIES) {
+      Serial.println("Failed to connect!");
+      return false;
+    }
+  }
+  Serial.println("Connected to the WiFi network");
+  http.begin(server);
+  http.addHeader("Content-Type", "application/json");
+  return true;
 }
 
-float short_to_float(SplitShort s, measurement m) {
-  /*
-   * Given a measurement type and a short, convert the short we get
-   * from the internal representation of data to a float used
-   * for display. 
-   */
-   uint16_t v = (s.high << 8) + s.low;
-   float x = v*m.resolution + m.min_value;
-   return x;
+// Init ESP Now with fallback
+void InitESPNow() {
+  WiFi.disconnect();
+  if (esp_now_init() == ESP_OK) {
+    Serial.println("ESPNow Init Success");
+  } else {
+    Serial.println("ESPNow Init Failed");
+    ESP.restart();
+  }
+}
+
+// config AP SSID
+void configDeviceAP() {
+  String Prefix = "Slave:";
+  String Mac = WiFi.macAddress();
+  String ssid = Prefix + Mac;
+  Serial.println("SSID: " + Prefix + Mac);
+  String Password = "123456789";
+  bool result = WiFi.softAP(ssid.c_str(), Password.c_str(), CHANNEL, 0);
+  if (!result) {
+    Serial.println("AP Config failed.");
+  } else {
+    Serial.println("AP Config Success. Broadcasting with AP: " + String(ssid));
+  }
 }
