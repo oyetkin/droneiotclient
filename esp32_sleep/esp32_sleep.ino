@@ -57,7 +57,8 @@ float lon = -117.095660; //the latitude of the location of the device
 //OTHER CONFIGURABLE
 #define MAX_RECORDS 298 // total readings for EACH of the sensor data
 #define uS_TO_S_FACTOR 1000000ULL  // Conversion factor for micro seconds to seconds
-#define RECORD_SIZE 2 //n bytes in a single header; should accord with the other data stuff!
+#define RECORD_SIZE 2 //n bytes in a single record
+#define HEADER_LEN 2
 
 ///// this section of code should also be in the receiver!! ////////
 struct measurement {
@@ -79,7 +80,7 @@ typedef struct split_short SplitShort;
 
 //make a "Measurement" for each of your sensors. Max is ~65K increments.
 //the format is {min_value, increment, units, measurement name, graph_min, graph_max, hardware name}
-Measurement pressure = {100000.0, 1.0, "Pa", "pressure", 90000, 110000, "BME280"};
+Measurement pressure = {80000.0, 1.0, "Pa", "pressure", 90000, 110000, "BME280"};
 Measurement temperature = {0.0, 0.01, "Celsius", "temperature", 15, 35, "BME280"};
 Measurement humidity = {0, 0.01, "Relative %", "humidity", 30, 100, "BME280"};
 Measurement measurements[3] = {temperature, humidity, pressure};
@@ -256,9 +257,9 @@ void ESPNowBroadcast() {
   WiFi.mode(WIFI_STA);
   InitESPNow();
   esp_now_add_peer(&slave);
-  sendDataMulti(temp_data, temperature);
-  //sendDataMulti(hum_data, humidity);
-  //sendDataMulti(pres_data, pressure);
+  sendDataMulti(temp_data, temperature, 1);
+  sendDataMulti(hum_data, humidity, 2);
+  sendDataMulti(pres_data, pressure, 3);
 }
 
 void ESPNowToMac() {
@@ -275,9 +276,10 @@ void ESPNowToMac() {
     esp_err_t addStatus = esp_now_add_peer(&slave);
     if (debug_ESP_error(addStatus)) { //this also prints the status
       Serial.println("Slave is paired");
-      sendDataMulti(temp_data, temperature);
-      //sendDataMulti(hum_data, humidity);
-      //sendDataMulti(pres_data, pressure);
+
+      sendDataMulti(temp_data, temperature, 1);
+      sendDataMulti(hum_data, humidity, 2);
+      sendDataMulti(pres_data, pressure, 3);
     } else {
       Serial.println("Slave pair failed!");
     }
@@ -373,28 +375,38 @@ float short_to_float(SplitShort s, measurement m) {
 
 /////////////////////////// ESP METHODS /////////////////////////////////////
 
-void sendDataMulti(uint8_t* a, Measurement m) {
+void sendDataMulti(uint8_t* a, Measurement m, uint8_t index) {
   /*
    * Send the array a on ESP Now in multiple packets - because the max
    * packet size is only 250 bytes. 
    * Note that the math only works because a is a byte array!
    */
   int total_sent = 0; //bytes of how much data you've sent so far
-  uint8_t *metadata = makeMetaData(m, MAX_RECORDS*RECORD_SIZE);
+  makeMetaData(m, index, MAX_RECORDS*RECORD_SIZE);
   Serial.println("Sending metadata");
   esp_now_send(slave.peer_addr, metadata, ESP_NOW_MAX_DATA_LEN);
   Serial.println("Enter while loop");
   while (total_sent < MAX_RECORDS*RECORD_SIZE) {
     int remaining = MAX_RECORDS*RECORD_SIZE - total_sent;
-    int data_len = min(ESP_NOW_MAX_DATA_LEN, remaining); // this is in bytes
+    int data_len = min(ESP_NOW_MAX_DATA_LEN - HEADER_LEN, remaining); // this is in bytes excluding header
     Serial.println("Sending " + String(data_len) + " bytes of " + String(MAX_RECORDS*RECORD_SIZE));
-    Serial.println("Sending " + String(last_float_from_data(&a[total_sent], m)));
-    esp_now_send(slave.peer_addr, &a[total_sent], data_len);
+
+    //create the actual packet to send
+    uint8_t to_send[ESP_NOW_MAX_DATA_LEN] = {0};
+    memset(&to_send[0], index, sizeof(uint8_t)); // index number of the data
+    memcpy(&to_send[HEADER_LEN], &a[total_sent], data_len);
+
+    SplitShort s = {to_send[2], to_send[3]};
+    SplitShort s2 = {to_send[4], to_send[5]};
+    Serial.print("Sending "); Serial.println(short_to_float(s, m));
+    Serial.print("Sending "); Serial.println(short_to_float(s2, m));
+    
+    esp_now_send(slave.peer_addr, &to_send[0], data_len + HEADER_LEN);
     total_sent += data_len;
    }
 }
 
-uint8_t* makeMetaData(Measurement m, int data_len) {
+uint8_t* makeMetaData(Measurement m, uint8_t index, int data_len) {
   /*
    * Send a metadata packet that includes the following info in the following order:
    *    Sensor name (32 chars)
@@ -413,22 +425,33 @@ uint8_t* makeMetaData(Measurement m, int data_len) {
   const char* measurement_type_c = m.type.c_str();
   const char* unit_c = m.unit.c_str();
   const char* hardware_name_c = m.hardware_name.c_str();
+  uint8_t n_packets = data_len/ESP_NOW_MAX_DATA_LEN + (data_len%ESP_NOW_MAX_DATA_LEN != 0); 
 
   memcpy(&metadata[0], device_name_c, min((size_t) 32, strlen(device_name_c)+1)); // name
-  memset(&metadata[31], 0, 1);
   memcpy(&metadata[32], &lat, sizeof(float)); // lat
   memcpy(&metadata[36], &lon, sizeof(float)); // lon
   memcpy(&metadata[40], measurement_type_c, min((size_t) 32, strlen(measurement_type_c)+1)); // measurement type
-  memcpy(&metadata[72], unit_c, min((size_t) 32, strlen(unit_c))); // measurement type
+  memcpy(&metadata[72], unit_c, min((size_t) 32, strlen(unit_c)+1)); // measurement type
   memcpy(&metadata[104], &m.min_value, sizeof(float)); // min value
   memcpy(&metadata[108], &m.resolution, sizeof(float)); // resolution
   memcpy(&metadata[112], hardware_name_c, min((size_t) 32, strlen(hardware_name_c)+1)); // hardware name
+  memset(&metadata[144], index, sizeof(uint8_t)); // index number of the data
+  memcpy(&metadata[145], &n_packets, sizeof(uint8_t)); // n packets
   
   //round up by adding 1 if the division is not even
-  int n_packets = data_len/ESP_NOW_MAX_DATA_LEN + (data_len%ESP_NOW_MAX_DATA_LEN != 0); 
-  memcpy(&metadata[144], &n_packets, sizeof(int)); // n packets
   Serial.println("Successfully created metadata");
-  return &metadata[0];
+  //return &metadata[0];
+}
+
+void update_mac(uint8_t n) {
+  /*
+   * When sending multiple data sets, edit the last byte of the mac address so that each data set is sent
+   * with a different mac address. n cannot be greater than 256 (1 byte)
+   */
+  uint8_t mac[6];
+  WiFi.macAddress(mac);
+  mac[5] = n;
+  esp_wifi_set_mac(WIFI_IF_STA, &mac[0]);
 }
 
 void defaultESPSend() {

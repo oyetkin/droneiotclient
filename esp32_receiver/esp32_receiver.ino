@@ -25,13 +25,15 @@
 #define PWM_CHANNEL 1 //anything from 1-16
 #define LED_FREQ 38000 //pwm modulation frequency, depends on receiver hardware
 #define DUTY_CYCLE_RES 8 //keep at 8 bits, we don't need better resolution
-#define MAX_WIFI_RETRIES 10 //number of times to try connecting to wifi before giving up
+#define MAX_WIFI_RETRIES 20 //number of times to try connecting to wifi before giving up
 #define LED_ON_TIME 3000 //how long to turn on the IR LEDs in millis
 #define INVALID_LOCATION -181.0 //invalid lat/lon
 #define MAX_SENSORS 3 //maximum number of sensors we can read from at a time
+#define RECORD_SIZE 2 //n bytes in a single record
+#define HEADER_LEN 2
 
-const char* ssid = "ATT5yX6g8p";
-const char* password =  "35fcs6hyi#yj";
+const char* ssid = "2firestar";
+const char* password =  "sachin10";
 const char* server = "https://api.is-conic.com/api/v0p1/sensor/batch";
 HTTPClient http;
 
@@ -47,7 +49,7 @@ struct measurement {
 typedef struct measurement Measurement;
 
 struct record {
-  String mac_address;
+  String mac_address_idx;
   String device_name;
   float lat;
   float lon;
@@ -72,9 +74,6 @@ int n_sensors_received = 0;
 void setup() {
   Serial.begin(115200);
   delay(1000);
-  
-  //Start off in ESP mode to begin with
-  setUpESPNow();
 
   pinMode(TRIGGER_PIN, INPUT);
   pinMode(LED_PIN, OUTPUT);
@@ -103,14 +102,13 @@ void loop() {
   } else if (upload) {
     Serial.println("Upload pressed!");
     if (connect_to_server()) {
-      
-      int response_1 = 0; //http.POST(multi_posts_from_array(
-      //  "arjun_test", temperature_data, 10, temperature, INVALID_LOCATION, INVALID_LOCATION, false));
-      
-      if (response_1 != 200) {
-        Serial.println("HTTP Post error");
-      } else {
-        Serial.println("Successfully posted.");
+      for (int i=0; i<MAX_SENSORS;i++) {
+        int response = 0; http.POST(post_all_records(all_records[i]));
+        if (response != 200) {
+          Serial.println("HTTP Post error");
+        } else {
+          Serial.println("Successfully posted.");
+        }
       }
       http.end();
     }
@@ -128,28 +126,32 @@ void OnDataRecv(const uint8_t *mac_addr, const uint8_t *data, int data_len) {
   char macStr[18];
   snprintf(macStr, sizeof(macStr), "%02x:%02x:%02x:%02x:%02x:%02x",
            mac_addr[0], mac_addr[1], mac_addr[2], mac_addr[3], mac_addr[4], mac_addr[5]);
-  Serial.print("Packet Recv from: "); Serial.println(macStr);
-
-  int record_idx = find_record_by_mac(macStr);  
+  Serial.print("Packet Recv from: "); Serial.print(macStr); 
+  
+  uint8_t index = 0;
+  memcpy(&index, &data[0], sizeof(uint8_t)); // data index
+  Serial.print(" with index "); Serial.println(index);
+  
+  int record_idx = find_record_by_mac(macStr + String(index));  
+  //if we have this mac address but the number of records from it == MAX_RECORDS...
   if (record_idx == -1) { //if we don't have this mac address, it is the first packet from a new device
     Serial.println("Unpack sensor metadata");
-    decodeMetaData(data, macStr, data_len);
-  } else { //otherwise, it's data; get the parameters to interpret that data based on its mac address
+    decodeMetaData(data, macStr);
+  } else { //read the sensor's data
     Measurement m = all_records[record_idx].m;
     float *a = all_records[record_idx].sensor_data;
     int data_head = all_records[record_idx].n_records_recd;
     Serial.println("Process sensor data using " + m.type);
-    
-    for (int i=0; i < data_len; i+=2) {
+    for (int i=HEADER_LEN; i < data_len; i+=RECORD_SIZE) { //iterate 2 bytes at a time
       SplitShort s = {data[i], data[i+1]};
-      a[data_head + i/2] = short_to_float(s, m);
+      a[data_head - HEADER_LEN + i/RECORD_SIZE] = short_to_float(s, m);
     }
-    Serial.print("Most recent reading sent: "); Serial.println(a[data_head]);  
-    all_records[record_idx].n_records_recd += data_len/2; //increment last position where receiving data    
+    Serial.print("First reading sent: "); Serial.println(a[data_head]);  
+    all_records[record_idx].n_records_recd += (data_len-HEADER_LEN)/RECORD_SIZE; //increment last position where receiving data    
   }
 }
 
-void decodeMetaData(const uint8_t *metadata, String mac_str, int data_len) {
+void decodeMetaData(const uint8_t *metadata, String mac_str) {
   /*
    * Decode the metadata packet. Memcopies the metadata piece by piece
    * into a set of variables. 
@@ -162,7 +164,8 @@ void decodeMetaData(const uint8_t *metadata, String mac_str, int data_len) {
   char my_type[32] = {};
   char my_unit[32] = {};
   char my_hardware[32] = {};
-  int n_packets = 0;
+  uint8_t index = 0;
+  uint8_t n_packets = 0;
   
   memcpy(&my_device_name[0], metadata, 32); // name
   memcpy(&my_lat, &metadata[32], sizeof(float)); // lat
@@ -172,19 +175,26 @@ void decodeMetaData(const uint8_t *metadata, String mac_str, int data_len) {
   memcpy(&my_min_value, &metadata[104], sizeof(float)); // lat
   memcpy(&my_resolution, &metadata[108], sizeof(float)); // lon
   memcpy(&my_hardware[0], &metadata[112], 32); // hardware
-  memcpy(&n_packets, &metadata[144], sizeof(int)); // n packets
+  memcpy(&index, &metadata[144], sizeof(uint8_t)); // data index
+  memcpy(&n_packets, &metadata[145], sizeof(uint8_t)); // n packets
 
   Serial.println("Device name: " + String(my_device_name));
   Serial.println("Location: " + String(my_lat) + ", " + String(my_lon));
   Serial.println("Measurement: " + String(my_type) + ", " + String(my_unit));
-  Serial.println("Measurement min, res: " + String(my_min_value) + ", " + String(my_resolution));
-
+  Serial.println("Measurement Min, Res: " + String(my_min_value) + ", " + String(my_resolution));
+  Serial.println("Next packets must be from: " + mac_str + String(index));
+  
+  //check if we've seen this sensor's data before. if it's new, use the sensor number to index.
+  int record_idx = find_record_by_mac(mac_str + String(index));
+  if (record_idx == -1) { 
+    record_idx = n_sensors_received;
+  }
   //Use all this information to create a Record, containing a zero-instantiated data array
   float data_array[MAX_RECORDS] = {0.0};
-  all_records[n_sensors_received] = {mac_str, my_device_name, my_lat, my_lon, 
-    {my_min_value, my_resolution, my_type, my_unit, my_hardware}, data_array};
+  all_records[record_idx] = {mac_str + String(index), my_device_name, my_lat, my_lon, 
+    {my_min_value, my_resolution, my_type, my_unit, my_hardware}, data_array, 0};
   n_sensors_received += 1;
-
+  Serial.println();
 }
 
 int find_record_by_mac(String mac_to_match) {
@@ -192,7 +202,7 @@ int find_record_by_mac(String mac_to_match) {
    * Given a mac address, return the index of that record
    */
   for (int i=0; i<MAX_SENSORS; i++) {
-    if (all_records[i].mac_address.equals(mac_to_match)) {
+    if (all_records[i].mac_address_idx.equals(mac_to_match)) {
       return i;
     }
   }
@@ -223,16 +233,16 @@ float short_to_float(SplitShort s, measurement m) {
 
 /////////////////////////////////// Lower level wifi post methods //////////////////////////////
 
-String multi_posts_from_array(String device_name, float* values, int n_values, Measurement m, float lat, float lon, bool incl_hardware) {
+String post_all_records(Record r) {
   /*
    * Convert the array of input measurements into a json-style list
    */
   String out = "[";
-  for (int i = 0; i < n_values-1; i++) {
-    String post = create_post_string(device_name, values[i], m, lat, lon, incl_hardware);
+  for (int i = 0; i < r.n_records_recd-1; i++) {
+    String post = create_post_string(r.device_name, r.sensor_data[i], r.m, r.lat, r.lon);
     out = out + post + ", ";
   }
-  String post = create_post_string(device_name, values[n_values-1], m, lat, lon, incl_hardware);
+  String post = create_post_string(r.device_name, r.sensor_data[r.n_records_recd-1], r.m, r.lat, r.lon);
   out = out + post + "]";
   return out;
 }
@@ -251,7 +261,7 @@ String multi_post_string(String* posts, int n_posts) {
    return out;
 }
 
-String create_post_string(String device_name, float value, Measurement m, float lat, float lon, bool incl_hardware) {
+String create_post_string(String device_name, float value, Measurement m, float lat, float lon) {
   /*
    * Convert the input measurement to a json-compatible string. 
    * The sensor name and location are hard-coded at the top of this sketch.
@@ -261,8 +271,7 @@ String create_post_string(String device_name, float value, Measurement m, float 
 
   if (lat != INVALID_LOCATION && lon != INVALID_LOCATION) {
     json = json + "\",\"lat\":\"" + String(lat) + "\",\"lon\":\"" + String(lon);    
-  }
-  if (incl_hardware) {
+  } if (!m.hardware_name.equals("")) {
     json = json + "\",\"hardware\":\"" + m.hardware_name;
   }
   json = json + "\"}";
@@ -289,6 +298,19 @@ bool connect_to_server() {
   /*
    * Connect to the wifi and Otto's server. Return true if successful
    */
+  int8_t scanResults = WiFi.scanNetworks();
+  if (scanResults == 0) {
+    Serial.println("No WiFi devices in AP Mode found");
+  } else {
+    Serial.print("Found "); Serial.print(scanResults); Serial.println(" devices ");
+    for (int i = 0; i < scanResults; ++i) {
+      // Print SSID and RSSI for each device found
+      String SSID = WiFi.SSID(i);
+      int32_t RSSI = WiFi.RSSI(i);
+      String BSSIDstr = WiFi.BSSIDstr(i);
+      Serial.println(SSID);
+    }
+  }
   WiFi.mode(WIFI_STA);
   WiFi.begin(ssid, password);
   int counter = 0;
