@@ -1,0 +1,326 @@
+EESchema Schematic File Version 4
+EELAYER 30 0
+EELAYER END
+$Descr A4 11693 8268
+encoding utf-8
+Sheet 1 1
+Title ""
+Date ""
+Rev ""
+Comp ""
+Comment1 ""
+Comment2 ""
+Comment3 ""
+Comment4 ""
+$EndDescr
+Text Label 4500 4750 0    50   ~ 0
+GND
+Text Label 4150 3850 0    50   ~ 0
+SDA
+Text Label 4150 3550 0    50   ~ 0
+SCL
+$Comp
+L Device:R R1
+U 1 1 604D89C5
+P 3150 5200
+F 0 "R1" V 3250 5250 50  0000 L CNN
+F 1 "10K" V 3250 5050 50  0000 L CNN
+F 2 "Resistor_SMD:R_0805_2012Metric_Pad1.20x1.40mm_HandSolder" V 3080 5200 50  0001 C CNN
+F 3 "~" H 3150 5200 50  0001 C CNN
+	1    3150 5200
+	0    -1   -1   0   
+$EndComp
+$Comp
+L Device:R R2
+U 1 1 604DC4F8
+P 3150 5400
+F 0 "R2" V 3050 5450 50  0000 L CNN
+F 1 "10K" V 3050 5250 50  0000 L CNN
+F 2 "Resistor_SMD:R_0805_2012Metric_Pad1.20x1.40mm_HandSolder" V 3080 5400 50  0001 C CNN
+F 3 "~" H 3150 5400 50  0001 C CNN
+	1    3150 5400
+	0    -1   -1   0   
+$EndComp
+$Comp
+L Switch:SW_Push Trigger1
+U 1 1 604FFFBF
+P 2250 5400
+F 0 "Trigger1" H 2350 5350 50  0000 R CNN
+F 1 "SW_Push" H 2400 5250 50  0000 R CNN
+F 2 "Button_Switch_SMD:SW_Push_1P1T_NO_6x6mm_H9.5mm" H 2250 5600 50  0001 C CNN
+F 3 "~" H 2250 5600 50  0001 C CNN
+	1    2250 5400
+	1    0    0    -1  
+$EndComp
+Wire Wire Line
+	3000 5200 2500 5200
+Connection ~ 2500 5200
+Wire Wire Line
+	3300 5400 4100 5400
+Wire Wire Line
+	1950 5650 1950 5400
+Wire Wire Line
+	2050 5400 1950 5400
+Connection ~ 1950 5400
+Wire Wire Line
+	1950 5400 1950 5200
+$Comp
+L Device:R R4
+U 1 1 605E82CC
+P 4550 6100
+F 0 "R4" V 4757 6100 50  0000 C CNN
+F 1 "100K" V 4666 6100 50  0000 C CNN
+F 2 "Resistor_SMD:R_0805_2012Metric_Pad1.20x1.40mm_HandSolder" V 4480 6100 50  0001 C CNN
+F 3 "~" H 4550 6100 50  0001 C CNN
+	1    4550 6100
+	0    -1   -1   0   
+$EndComp
+Connection ~ 4100 5400
+$Comp
+L Device:R R3
+U 1 1 6060242F
+P 3400 5800
+F 0 "R3" V 3500 5800 50  0000 C CNN
+F 1 "10K" V 3300 5800 50  0000 C CNN
+F 2 "Resistor_SMD:R_0805_2012Metric_Pad1.20x1.40mm_HandSolder" V 3330 5800 50  0001 C CNN
+F 3 "~" H 3400 5800 50  0001 C CNN
+	1    3400 5800
+	0    -1   -1   0   
+$EndComp
+$Comp
+L Transistor_BJT:2N2219 Q1
+U 1 1 605D56C8
+P 3900 5900
+F 0 "Q1" V 4100 5900 50  0000 C CNN
+F 1 "2N2222" V 3900 5600 50  0000 C CNN
+F 2 "Package_TO_SOT_SMD:SOT-23_Handsoldering" H 4100 5825 50  0001 L CIN
+F 3 "http://www.onsemi.com/pub_link/Collateral/2N2219-D.PDF" H 3900 5900 50  0001 L CNN
+	1    3900 5900
+	0    -1   -1   0   
+$EndComp
+Wire Wire Line
+	4100 5400 4100 5800
+Wire Wire Line
+	1950 5650 3100 5650
+Wire Wire Line
+	3100 5650 3100 5800
+Connection ~ 3100 5650
+Wire Wire Line
+	3250 5800 3100 5800
+Wire Wire Line
+	3550 5800 3600 5800
+Wire Wire Line
+	3600 5800 3600 5950
+Connection ~ 3600 5800
+Wire Wire Line
+	3600 5800 3700 5800
+Wire Wire Line
+	4400 6100 3900 6100
+Wire Wire Line
+	2500 4350 2850 4350
+Text Label 3100 5650 0    50   ~ 0
+3V3
+$Comp
+L weather_station_parts:ESP32-WROOM U1
+U 1 1 60955915
+P 3450 4200
+F 0 "U1" H 3480 5215 50  0000 C CNN
+F 1 "ESP32-WROOM" H 3480 5124 50  0000 C CNN
+F 2 "" H 3450 4200 50  0001 C CNN
+F 3 "" H 3450 4200 50  0001 C CNN
+	1    3450 4200
+	1    0    0    -1  
+$EndComp
+$Comp
+L weather_station_parts:OLED_SSD1306 U3
+U 1 1 60962F53
+P 5650 4400
+F 0 "U3" V 5696 3972 50  0000 R CNN
+F 1 "OLED_SSD1306" V 5605 3972 50  0000 R CNN
+F 2 "" H 5650 4400 50  0001 C CNN
+F 3 "" H 5650 4400 50  0001 C CNN
+	1    5650 4400
+	0    -1   -1   0   
+$EndComp
+$Comp
+L weather_station_parts:IR_Recvr_Amazon U4
+U 1 1 6096B115
+P 5450 5350
+F 0 "U4" V 5404 5678 50  0000 L CNN
+F 1 "IR_Recvr_HX_M21" V 5495 5678 50  0000 L CNN
+F 2 "" H 5450 5350 50  0001 C CNN
+F 3 "" H 5450 5350 50  0001 C CNN
+	1    5450 5350
+	0    1    1    0   
+$EndComp
+Wire Wire Line
+	2500 4350 2500 5200
+Wire Wire Line
+	2850 4650 2800 4650
+Wire Wire Line
+	3600 5950 2650 5950
+Wire Wire Line
+	2650 4450 2850 4450
+Wire Wire Line
+	2650 4450 2650 5950
+Wire Wire Line
+	2450 5400 2800 5400
+Wire Wire Line
+	2800 5400 3000 5400
+Connection ~ 2800 5400
+Wire Wire Line
+	2800 4650 2800 5400
+$Comp
+L weather_station_parts:BMP180 U2
+U 1 1 609603E7
+P 5500 3500
+F 0 "U2" V 5541 3172 50  0000 R CNN
+F 1 "BME280" V 5450 3172 50  0000 R CNN
+F 2 "" H 5500 3500 50  0001 C CNN
+F 3 "" H 5500 3500 50  0001 C CNN
+	1    5500 3500
+	0    -1   -1   0   
+$EndComp
+Wire Wire Line
+	5300 3450 5100 3450
+Wire Wire Line
+	5100 3450 5100 4450
+Wire Wire Line
+	4800 3550 4800 4350
+Wire Wire Line
+	4800 4350 5300 4350
+Connection ~ 4800 3550
+Wire Wire Line
+	4800 3550 5300 3550
+Wire Wire Line
+	5300 4450 5100 4450
+Connection ~ 5100 4450
+Wire Wire Line
+	5100 4450 5100 4750
+Wire Wire Line
+	5300 4550 5250 4550
+Wire Wire Line
+	5250 4550 5250 4850
+Wire Wire Line
+	2450 5200 2500 5200
+Wire Wire Line
+	2050 5200 1950 5200
+$Comp
+L Switch:SW_Push Mode1
+U 1 1 6063A1F9
+P 2250 5200
+F 0 "Mode1" H 2300 5350 50  0000 R CNN
+F 1 "SW_Push" H 2400 5450 50  0000 R CNN
+F 2 "Button_Switch_SMD:SW_Push_1P1T_NO_6x6mm_H9.5mm" H 2250 5400 50  0001 C CNN
+F 3 "~" H 2250 5400 50  0001 C CNN
+	1    2250 5200
+	1    0    0    -1  
+$EndComp
+Wire Wire Line
+	5000 5450 4850 5450
+Wire Wire Line
+	4850 5450 4850 6100
+Wire Wire Line
+	4850 6100 4700 6100
+Wire Wire Line
+	4100 4850 4200 4850
+Wire Wire Line
+	4100 3850 4200 3850
+Connection ~ 4200 3850
+Wire Wire Line
+	4200 4650 4200 4850
+Connection ~ 4200 4850
+Wire Wire Line
+	4200 3850 4200 4350
+$Comp
+L Device:R R5
+U 1 1 605D37E2
+P 4200 4500
+F 0 "R5" V 4300 4350 50  0000 L CNN
+F 1 "2.4K" V 4300 4500 50  0000 L CNN
+F 2 "Resistor_SMD:R_0805_2012Metric_Pad1.20x1.40mm_HandSolder" V 4130 4500 50  0001 C CNN
+F 3 "~" H 4200 4500 50  0001 C CNN
+	1    4200 4500
+	1    0    0    -1  
+$EndComp
+Text Label 4500 4850 0    50   ~ 0
+3V3
+Wire Wire Line
+	4100 5400 4300 5400
+Wire Wire Line
+	4300 5400 4300 5200
+Wire Wire Line
+	3300 5200 4300 5200
+Connection ~ 4300 4750
+Wire Wire Line
+	4300 4750 4100 4750
+Connection ~ 4300 5200
+Wire Wire Line
+	4300 4750 4300 5200
+Wire Wire Line
+	4200 4850 4400 4850
+Connection ~ 4400 4850
+Wire Wire Line
+	4400 3550 4800 3550
+Connection ~ 4400 3550
+Wire Wire Line
+	4400 3550 4100 3550
+Wire Wire Line
+	5250 4850 4950 4850
+Connection ~ 4950 4850
+Wire Wire Line
+	5300 3350 4950 3350
+Wire Wire Line
+	4950 3350 4950 4850
+Wire Wire Line
+	4850 5250 5000 5250
+Wire Wire Line
+	4300 4750 4850 4750
+Wire Wire Line
+	4850 4750 5100 4750
+Connection ~ 4850 4750
+Wire Wire Line
+	4850 4750 4850 5250
+Wire Wire Line
+	4700 5350 5000 5350
+Wire Wire Line
+	4700 4850 4950 4850
+Connection ~ 4700 4850
+Wire Wire Line
+	4700 4850 4700 5350
+Wire Wire Line
+	3100 5650 4550 5650
+Wire Wire Line
+	4400 4850 4550 4850
+Wire Wire Line
+	4550 4850 4700 4850
+Connection ~ 4550 4850
+Wire Wire Line
+	4550 4850 4550 5650
+Wire Wire Line
+	4650 4250 5300 4250
+Wire Wire Line
+	5300 3650 4650 3650
+Wire Wire Line
+	4650 3650 4650 3850
+Wire Wire Line
+	4400 4200 4400 4850
+Wire Wire Line
+	4400 3550 4400 3900
+$Comp
+L Device:R R6
+U 1 1 605D9489
+P 4400 4050
+F 0 "R6" V 4500 3900 50  0000 L CNN
+F 1 "2.4K" V 4500 4050 50  0000 L CNN
+F 2 "Resistor_SMD:R_0805_2012Metric_Pad1.20x1.40mm_HandSolder" V 4330 4050 50  0001 C CNN
+F 3 "~" H 4400 4050 50  0001 C CNN
+	1    4400 4050
+	1    0    0    -1  
+$EndComp
+Wire Wire Line
+	4200 3850 4650 3850
+Connection ~ 4650 3850
+Wire Wire Line
+	4650 3850 4650 4250
+$EndSCHEMATC

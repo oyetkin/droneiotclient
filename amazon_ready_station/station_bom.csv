@@ -1,9 +1,0 @@
-,Part Number,Quantity,Order Link,Purpose,Key Specs
-1,PinSocket_1x04_P2.54mm_Vertical,2,,I2C Female Headers,"1x4, 2.54mm spacing"
-2,PinSocket_1x15_P2.54mm_Vertical,2,,ESP Female Headers,"1x15, 2.54mm spacing"
-3,PinSocket_1x03_P2.54mm_Vertical,1,,IR Receiver Female Header,"1x3, 2.54mm spacing"
-4,2N222 SOT 23,1,,Transistor (Logic Inverting),SOT-23 package
-5,Resistor_0805_10K,3,,"Resistors, button and other pullup","10K Ohm, 0805 package"
-6,Resistor_0805_2.4K,2,,"Resistors, I2C Pullup",
-7,Resistor_0805_100K,1,,"Resistors, logic inverter",
-8,SW_Push_1P1T_6x6mm,2,,"Momentary Button (Mode, Trigger)",

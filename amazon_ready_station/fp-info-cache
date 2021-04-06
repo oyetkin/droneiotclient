@@ -1,4 +1,4 @@
-19086574998153133
+19088192220191723
 Battery
 BatteryHolder_Bulgin_BX0036_1xC
 Bulgin Battery Holder, BX0036, Battery Type C (https://www.bulgin.com/products/pub/media/bulgin/data/Battery_holders.pdf)
@@ -77720,6 +77720,13 @@ Logo WEEE
 0
 0
 0
+TSOP38238
+XDCR_TSOP38238
+
+
+0
+3
+3
 TerminalBlock
 TerminalBlock_Altech_AK300-2_P5.00mm
 Altech AK300 terminal block, pitch 5.0mm, 45 degree angled, see http://www.mouser.com/ds/2/16/PCBMETRC-24178.pdf

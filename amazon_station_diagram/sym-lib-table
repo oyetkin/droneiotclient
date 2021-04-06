@@ -1,0 +1,3 @@
+(sym_lib_table
+  (lib (name weather_station_parts)(type Legacy)(uri ${KIPRJMOD}/weather_station_parts.lib)(options "")(descr ""))
+)
