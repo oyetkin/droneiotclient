@@ -7,17 +7,18 @@
  * "ESP8266 and ESP32 OLED driver for SSD1306 displays"
  * "Adafruit BME280"
  * 
- * TODO: 
- *    --deep sleep issues: https://github.com/espressif/arduino-esp32/issues/1113
- *    
+ * Author: Arjun Tambe, Analytical Mechanical Associates
+ * Source: https://github.com/oyetkin/droneiotclient
+ * 
+ * Credit for some portions of code: 
+ *    ESP-Now Demo by Arvind Ravulavaru <https://github.com/arvindr21>
  */
 #include <Wire.h>  
-#include "WiFi.h"
+#include <WiFi.h>
 #include "HTTPClient.h"
-#include <Adafruit_Sensor.h>
 #include <Adafruit_BME280.h>
 #include "SH1106Wire.h"
-#include "time.h"
+#include <time.h>
 #include <esp_now.h>
 #include "driver/adc.h"
 #include "esp_wifi.h"
