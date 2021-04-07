@@ -22,3 +22,10 @@ The device also has a second Wifi mode, which can be toggled using a push button
 5. Run the Demo ipy notebook to visualize your data. 
 
 Read the tutorial for a more detailed introduction. See the server repo for more details on how to retrieve data. 
+
+## File guide
+
+1. Tutorial article, schematic
+2. PCB
+  Bill of materials for PCB
+3. code
