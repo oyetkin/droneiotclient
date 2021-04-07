@@ -1,22 +1,17 @@
-/**
-   ESPNOW - Basic communication - Slave - Arvind Ravulavaru <https://github.com/arvindr21>
-
-  Sketch was initially producing errors for me. To fix this, I erased the 
-  device's flash memory (https://github.com/espressif/esptool/issues/348)
-  Just navigate to esptool.py (/Users/YourName/Library/Arduino15/packages/esp32...)
-  And run:       "" python esptool.py --chip esp32 --port /dev/cu.usbserial-0001 
-  --baud 115200 --before default_reset --after hard_reset erase_flash ""
-  Then it should start working
-
-  Libraries:
-  Dictionary by Anatoli Arkhipenko
-
+/*
+ * Notes...
+ * 
+ * 
+ * Author: Arjun Tambe, Analytical Mechanical Associates
+ * Source: https://github.com/oyetkin/droneiotclient
+ * 
+ * Credit for some portions of code: 
+ *    ESP-Now Demo by Arvind Ravulavaru <https://github.com/arvindr21>
 */
 
 #include <esp_now.h>
 #include "WiFi.h"
 #include "HTTPClient.h"
-#include <Dictionary.h>
 
 #define CHANNEL 1 //esp now transmission channel, anything from 1-16
 #define TRIGGER_PIN GPIO_NUM_16 //for the trigger button
