@@ -20,7 +20,7 @@
 #define PWM_CHANNEL 1 //anything from 1-16
 #define LED_FREQ 38000 //pwm modulation frequency, depends on receiver hardware
 #define DUTY_CYCLE_RES 8 //keep at 8 bits, we don't need better resolution
-#define MAX_WIFI_RETRIES 20 //number of times to try connecting to wifi before giving up
+#define MAX_WIFI_RETRIES 40 //number of times to try connecting to wifi before giving up
 #define LED_ON_TIME 3000 //how long to turn on the IR LEDs in millis
 #define INVALID_LOCATION -181.0 //invalid lat/lon
 #define MAX_SENSORS 3 //maximum number of sensors we can read from at a time
@@ -28,7 +28,7 @@
 #define HEADER_LEN 2
 
 const char* ssid = "2firestar";
-const char* password =  "sachin10";
+const char* password =  "sachin12";
 const char* server = "https://api.is-conic.com/api/v0p1/sensor/batch";
 HTTPClient http;
 
@@ -65,8 +65,15 @@ typedef struct split_short SplitShort;
 
 int n_sensors_received = 0;
 
+#define POST_LENGTH 250 //number of characters in a single json-formatted post request
+
+char batch_post[2 + MAX_RECORDS*POST_LENGTH];
+
 ////////////////// begin the code    //////////////////////
 void setup() {
+  /*
+   * Initialize the serial and configure the pinouts. 
+   */
   Serial.begin(115200);
   delay(1000);
 
@@ -78,11 +85,12 @@ void setup() {
 
 void loop() {
   /*
-   * Just wait for a button press, and activate 
+   * Waits for one of the two buttons to be pressed. The first button makes it activate the LED,
+   * and listen for ESP-Now packets. The other makes it upload its data to the server. 
    */
   bool trigger = false;
   bool upload = false;
-  while(!trigger && !upload) { 
+  while(!trigger && !upload) { //stay in this loop until one of the buttons is pressed
     delay(10);
     trigger = digitalRead(TRIGGER_PIN);
     upload = digitalRead(UPLOAD_PIN);
@@ -90,17 +98,20 @@ void loop() {
   if (trigger) {
     Serial.println("Trigger pressed!");
     setUpESPNow();
-    //activate the LED pwm pin
+    //turn on the LED pin for a few seconds. The PWM frequency is configured in setup(). 
+    //When data is received, it calls the callback function "OnDataRecv." 
     ledcWrite(PWM_CHANNEL, 128);
     delay(LED_ON_TIME);
     ledcWrite(PWM_CHANNEL, 0);
-  } else if (upload) {
+  } else if (upload) { //Connect to the wifi and upload your data
     Serial.println("Upload pressed!");
+    //TODO: decompose this
     if (connect_to_server()) {
       for (int i=0; i<MAX_SENSORS;i++) {
-        int response = 0; http.POST(post_all_records(all_records[i]));
+        post_all_records(all_records[i]);
+        int response = http.POST(batch_post);
         if (response != 200) {
-          Serial.println("HTTP Post error");
+          Serial.print("HTTP Post error "); Serial.println(response);
         } else {
           Serial.println("Successfully posted.");
         }
@@ -228,38 +239,40 @@ float short_to_float(SplitShort s, measurement m) {
 
 /////////////////////////////////// Lower level wifi post methods //////////////////////////////
 
-String post_all_records(Record r) {
+void post_all_records(Record r) {
   /*
-   * Convert the array of input measurements into a json-style list
+   * Convert the array of input measurements into a json-style list. 
+   * Saves it into the batch_post buffer.
    */
-  String out = "[";
-  for (int i = 0; i < r.n_records_recd-1; i++) {
+   
+  //set the first char to open bracket
+  memset(batch_post, '[', 1);
+  //set the second char to terminator, so concatenation starts from here instead of adding on to the end of the previous
+  memset(&batch_post[1], '\0', 1);
+  String post = create_post_string(r.device_name, r.sensor_data[0], r.m, r.lat, r.lon) + ",";
+  strncat(batch_post, post.c_str(), strlen(post.c_str())+1);//one extra for the null terminator. may have to memset this ourselves
+  for (int i = 1; i < 2; i++) { //should be to r.n_records_recd
     String post = create_post_string(r.device_name, r.sensor_data[i], r.m, r.lat, r.lon);
-    out = out + post + ", ";
+    if (i < 2-1) {
+      post = post + ",";
+    }
+    strncat(batch_post, post.c_str(), strlen(post.c_str()));
   }
-  String post = create_post_string(r.device_name, r.sensor_data[r.n_records_recd-1], r.m, r.lat, r.lon);
-  out = out + post + "]";
-  return out;
-}
-
-
-String multi_post_string(String* posts, int n_posts) {
-  /*
-   * Take a set of json-formatted post strings (using create_post_string method) and combine
-   * them into a json-formatted list, in order to batch post them. 
-   */
-   String out = "[";
-   for (int i=0; i<n_posts-1; i++) {
-    out = out + posts[i] + ", ";
-   }
-   out = out + posts[n_posts-1] + "]";
-   return out;
+  strcat(batch_post, "]");
+  Serial.println("Built post string.");
+  Serial.println(batch_post);
 }
 
 String create_post_string(String device_name, float value, Measurement m, float lat, float lon) {
   /*
-   * Convert the input measurement to a json-compatible string. 
-   * The sensor name and location are hard-coded at the top of this sketch.
+   * Convert the input measurement to a json-formatted string. Pass in the device name, the measured
+   * value, the measurement type, and the coordinates. 
+   * 
+   * For non-mandatory fields:
+   *  -For lat/lon, if you pass in the INVALID_LOCATION value,  it won't include the coordinates
+   *  -If the Measurement's hardware_name parameter is an empty string, it won't be included
+   *  -Time is not included. 
+   * 
    */
   String json = "{\"key\":\"" + device_name + "\",\"measurement_name\":\"" + m.type;
   json = json + "\",\"unit\":\"" + m.unit + "\",\"value\":\"" + String(value);
@@ -273,39 +286,33 @@ String create_post_string(String device_name, float value, Measurement m, float 
   return json;
 }
 
-
-
 //////////////////ESP Now and Wifi setup /////////////////////
 
 void setUpESPNow() {
   /*
-   * Sets device in Access Point mode and configures other ESP Now stuff
+   * Prepares the device to receive data on ESP-Now. Disconnects from Wifi, 
+   * configures the device as an Access Point, and prints out its mac address. 
+   * 
    */
+  WiFi.disconnect(); //TODO: make sure this works after connecting to wifi, may need to move after configAP
   WiFi.mode(WIFI_AP);
   configDeviceAP();
   Serial.print("AP MAC: "); Serial.println(WiFi.softAPmacAddress());
-  InitESPNow();
-  esp_now_register_recv_cb(OnDataRecv); //calls when any data is received
+  if (esp_now_init() == ESP_OK) {
+    Serial.println("ESPNow Init Success");
+  } else {
+    Serial.println("ESPNow Init Failed");
+    ESP.restart();
+  }
+  esp_now_register_recv_cb(OnDataRecv); //OnDataRecv will get called whenever we receive data. 
 }
 
 
 bool connect_to_server() {
   /*
-   * Connect to the wifi and Otto's server. Return true if successful
+   * Connect to the wifi and the server. Return true if successful. 
+   * Gives up if it can't connect to the WiFi network after several tries. 
    */
-  int8_t scanResults = WiFi.scanNetworks();
-  if (scanResults == 0) {
-    Serial.println("No WiFi devices in AP Mode found");
-  } else {
-    Serial.print("Found "); Serial.print(scanResults); Serial.println(" devices ");
-    for (int i = 0; i < scanResults; ++i) {
-      // Print SSID and RSSI for each device found
-      String SSID = WiFi.SSID(i);
-      int32_t RSSI = WiFi.RSSI(i);
-      String BSSIDstr = WiFi.BSSIDstr(i);
-      Serial.println(SSID);
-    }
-  }
   WiFi.mode(WIFI_STA);
   WiFi.begin(ssid, password);
   int counter = 0;
@@ -320,19 +327,9 @@ bool connect_to_server() {
   }
   Serial.println("Connected to the WiFi network");
   http.begin(server);
-  http.addHeader("Content-Type", "application/json");
+  http.addHeader("Content-Type", "application/json"); //all our POST requests will be in json format!
+  Serial.println("Connected to server.");
   return true;
-}
-
-// Init ESP Now with fallback
-void InitESPNow() {
-  WiFi.disconnect();
-  if (esp_now_init() == ESP_OK) {
-    Serial.println("ESPNow Init Success");
-  } else {
-    Serial.println("ESPNow Init Failed");
-    ESP.restart();
-  }
 }
 
 // config AP SSID

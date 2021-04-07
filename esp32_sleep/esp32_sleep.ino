@@ -25,8 +25,8 @@
 
 // User should change these settings as needed
 #define TIME_TO_SLEEP  60 //time to sleep in seconds
-const char* ssid = "ATT5yX6g8p"; // your wifi network name
-const char* password =  "35fcs6hyi#yj"; //your wifi password
+const char* ssid = "2firestar"; //your wifi network name
+const char* password =  "sachin12"; //your wifi network password
 const char* server = "https://api.is-conic.com/api/v0p1/sensor/batch"; //the URL to post to your server
 const String device_name = "arjun_station"; //name of your device
 float lat = 32.636462; //the latitude of the location of the device
@@ -60,6 +60,7 @@ float lon = -117.095660; //the latitude of the location of the device
 #define uS_TO_S_FACTOR 1000000ULL  // Conversion factor for micro seconds to seconds
 #define RECORD_SIZE 2 //n bytes in a single record
 #define HEADER_LEN 2
+#define BME_ADDR 0x76 //default address of the BME sensor
 
 ///// this section of code should also be in the receiver!! ////////
 struct measurement {
@@ -199,7 +200,7 @@ void read_sensors() {
   /*
    * Read the sensor values and print to the serial. 
    */
-  if (!bme.begin(0x76)) {
+  if (!bme.begin(BME_ADDR)) {
     Serial.println("Could not find a valid BME sensor!");
     go_to_sleep(1);
   }
