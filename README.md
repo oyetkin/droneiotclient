@@ -1,11 +1,14 @@
 # droneiotclient
 
+## Overview
 
-This currently just contains several separate Drone IOT related projects. They are listed below:
+This is the client end of a system designed to measure sensor data from a set of "Data Loggers" deployed in the field, retrieve the sensor data from a "Data Collector" device, and then process and use the data. The system contains 4 main items:
 
-1. Virginia Demo: Jupyter notebook that gets data from Otto's server and displays it. Meant to exhibit a preview of what our data could look like and how it could be used. 
-2. arduino_testing: Just a testing script to play wiht random functions like IR on the arduino. 
-3. esp_32_demo: Code to run the ESP 32 as a weather station. Currently (3/09/21) it assumes the ESP 32 is connected to Wifi and has a DHT11 humidity/temp sensor, BMP 180 pressure sensor, and an OLED. Posts to Otto's server every 2 seconds. 
-4. simple server: Very basic server demo. Run server_demo from one terminal to start the server; run sensor_prototype from another terminal and it will post to the server with each call (specify args from the command line) (does not include an actual sensor!).  Sensor_prototype_otto_server was meant to interface with Otto's server but there were a few bugs left to correct still. upload_measurements.sh just runs sensor_protoype many times to post lots of data. 
-5. visualize_sensors.py: Draft version of the Virginia Demo notebook. 
-6. Barometer_HP20x_HumidityDHTArduino: Oguz's arduino code.  
+1. esp32_sleep: This code is for the Data Logger. The device is meant to include an ESP32 microcontroller, an SSD1306 display screen, a BME280 temperature/pressure/humidity sensor, and an IR receiver. The device consumes very low power so that it can last for weeks on battery power alone. It wakes up on a configurable interval to collect data, stores that data, and goes back to sleep. When the Data Collector device sends an IR signal to the device, it wakes up, sends its data using point-to-point WiFi (ESP-Now), and goes back to sleep.
+The device also has a second Wifi mode, which can be toggled using a push button. In this mode, the device wakes up, connects to a WiFi network, and posts its data to a server.  
+
+2. esp32_receiver. This code is for the Data Receiver. It is also meant to be used with an ESP32 device. 
+
+3. You'll also need a server to collect and store data from the sensors. An open-source server that is compatible with this project available here: https://github.com/oyetkin/droneiotserver
+
+4. Demo notebook. There
