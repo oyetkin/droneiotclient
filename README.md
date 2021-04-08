@@ -29,3 +29,13 @@ Read the tutorial for a more detailed introduction. See the server repo for more
 2. PCB
   Bill of materials for PCB
 3. code
+
+
+# Ideas for future developers...
+
+There are a lot of things that can be done to make this device work better. Here are some ideas:
+1. Currently, the Data Logger tells the Data Collector the time interval between its data, and the time since the last measurement. The Data Collector can use this to figure out what time each of the data points were recorded. However, this only works if you never miss a measurement. If the Logger fails to record a measurement today, it will record tomorrow's measurement in the spot meant for today, which messes up the timing. To fix this, you could record a "gap" or "blank" whenever you miss a measurement. To do this, you'd have to edit the data protocol to reserve a specific byte pattern as NaN. For instance, you could write 0xFFFF (which is currently the maximum value of a measurement) whenever you want to write a "blank," and make sure the Data Collector knows that 0xFFFF means "blank," not the max value. 
+2. If the device loses power, it'll lose all its memory. This is a weakness for applications where the sensor needs to log data in harsh conditions (such as low temperature or being moved around or dropped). You could write to PROGMEM instead of the RTC memory. 
+3. The device currently works on an ESP-32 Dev Board. The board has a voltage regulator for 5V --> 3V3, and an LED that's always on. That takes a whole lot of power! To achieve the low-power modes this design is meant for, you can redesign the device to work on the bare ESP32 chip instead of the Dev module.
+4. In this vein, you could use a transistor, controlled by the ESP32, to control power to other devices. Before putting the ESP32 to sleep, you'd switch the transistor off so that the other devices don't consume any power when not needed. You'd want to pull the base low and use a bigger resistor to limit the current drain associated with the transistor itself. 
+5. Also, the OLED and the Serial Monitor are slow and power-inefficient. You could remove the print statements and delay()s associated with using these displays in order to spend less time and power awake. 
