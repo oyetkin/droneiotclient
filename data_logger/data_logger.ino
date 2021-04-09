@@ -31,9 +31,9 @@
 const char* ssid = "2firestar"; //your wifi network name
 const char* password =  "sachin12"; //your wifi network password
 const char* server = "https://api.is-conic.com/api/v0p1/sensor/batch"; //the URL to post to your server
-const String device_name = "arjun_station"; //name of your device
-float lat = 32.636462; //the latitude of the location of the device
-float lon = -117.095660; //the latitude of the location of the device
+const String device_name = "arjun_2"; //name of your device
+float lat = 34.194057; //the latitude of the location of the device
+float lon = -118.295158; //the latitude of the location of the device
 
 //more advanced user settings
 #define MAX_WIFI_RETRIES 30 //number of times to try connecting to wifi before giving up

@@ -1,6 +1,7 @@
 /*
- * Notes...
- * 
+ * This code is for the Data Collector, a device that wakes up other 
+ * Data Loggers using an IR signal, and reads data from the devices 
+ * using ESP-Now. It also posts to the server.  
  * 
  * Author: Arjun Tambe, Analytical Mechanical Associates
  * Source: https://github.com/oyetkin/droneiotclient
@@ -12,11 +13,12 @@
 #include <esp_now.h>
 #include "WiFi.h"
 #include "HTTPClient.h"
+#include <time.h>
 
 //Edit these!
 const char* ssid = "2firestar"; //Name of your wifi network
 const char* password =  "sachin12"; //Password for your wifi network
-const char* server = "https://api.is-conic.com/api/v0p1/sensor/batch"; //URL for your server
+const char* server = "https://api.is-conic.com/api/v0p1/sensor"; //URL for your server
 
 //Pinouts and configurable
 #define TRIGGER_PIN GPIO_NUM_16 //for the trigger button
@@ -58,9 +60,11 @@ struct data_series {
   String device_name; //Name of the data logger
   float lat; //coordinates of the logger
   float lon;
+  int time_interval; //time in between each measurement
+  unsigned long last_measurement_time; //unix time for the last measurement
   Measurement m; //the type of measurement this data series tracks
-  float* sensor_data; //contains the actual data for this data series
-  int n_records_recd; //how many values the sensor_data array actually contains right now
+  float sensor_data[MAX_RECORDS]; //contains the actual data for this data series
+  int n_records_recd = 0; //how many values the sensor_data array actually contains right now
 };
 typedef struct data_series dataSeries;
 
@@ -81,6 +85,8 @@ int n_series_received = 0;
 #define POST_LENGTH 250 //number of characters in a single json-formatted post request
 char batch_post[2 + MAX_RECORDS*POST_LENGTH];
 HTTPClient http;
+const char* ntpServer = "pool.ntp.org";
+unsigned long last_time_stamp;
 
 
 ////////////////// begin the code    //////////////////////
@@ -113,6 +119,9 @@ void loop() {
   }
   if (trigger) {       // if it was the trigger button, then prepare for ESP Now and fire the IR LED
     Serial.println("Trigger pressed!");
+    //update the current time, which is used to figure out the times of data received
+    updateRealTime();
+    Serial.println(last_time_stamp);
     //When data is received, it calls the callback function "OnDataRecv." 
     setUpESPNow();
     sendIRTrigger();
@@ -141,20 +150,12 @@ void sendIRTrigger() {
 void uploadData() {
   /*
    * Upload all data to the server. Iterates through each of the series we have, 
-   * creates a Post string for that series, and posts it. 
-   * 
-   * If a Series has been instantiated, but the data inside that Series remains empty then
-   * there may be issues!
+   * and posts each of the records for that series. 
    */
   if (connect_to_server()) {
     for (int i=0; i<n_series_received; i++) {
-      post_all_records(all_data_series[i]);
-      int response = http.POST(batch_post);
-      if (response != 200) {
-        Serial.print("HTTP Post error "); Serial.println(response);
-      } else {
-        Serial.println("Successfully posted.");
-      }
+      Serial.println("Posting records for " + String(all_data_series[i].series_id));
+      post_all_records(&(all_data_series[i]));
     }
     http.end();
   }
@@ -206,14 +207,14 @@ void decodeMetaData(const uint8_t *metadata, String series_id) {
    * Decode the metadata packet. Memcopies the metadata piece by piece
    * into a set of variables. 
    */
-  char my_device_name[32] = {};
-  float my_lat = -181.0;
-  float my_lon = -181.0;
-  float my_min_value = -181.0;
-  float my_resolution = -181.0;
-  char my_type[32] = {};
-  char my_unit[32] = {};
-  char my_hardware[32] = {};
+  char device_name[32] = {};
+  float lat = INVALID_LOCATION;
+  float lon = INVALID_LOCATION;
+  float min_value = 0.0;
+  float resolution = 0.0;
+  char type[32] = {};
+  char unit[32] = {};
+  char hardware[32] = {};
   uint16_t index = 0;
   uint8_t n_packets = 0;
   uint16_t time_interval = 0;
@@ -221,25 +222,25 @@ void decodeMetaData(const uint8_t *metadata, String series_id) {
 
   //Go through each field, one by one, and save all the values
   memcpy(&index, &metadata[0], sizeof(uint8_t)); // data index
-  memcpy(&my_device_name, &metadata[2], 32); // name
-  memcpy(&my_lat, &metadata[34], sizeof(float)); // lat
-  memcpy(&my_lon, &metadata[38], sizeof(float)); // lon
-  memcpy(&my_type[0], &metadata[42], 32); // name
-  memcpy(&my_unit[0], &metadata[74], 32); // name
-  memcpy(&my_min_value, &metadata[106], sizeof(float)); // lat
-  memcpy(&my_resolution, &metadata[110], sizeof(float)); // lon
-  memcpy(&my_hardware[0], &metadata[114], 32); // hardware
+  memcpy(&device_name, &metadata[2], 32); // name
+  memcpy(&lat, &metadata[34], sizeof(float)); // lat
+  memcpy(&lon, &metadata[38], sizeof(float)); // lon
+  memcpy(&type[0], &metadata[42], 32); // name
+  memcpy(&unit[0], &metadata[74], 32); // name
+  memcpy(&min_value, &metadata[106], sizeof(float)); // lat
+  memcpy(&resolution, &metadata[110], sizeof(float)); // lon
+  memcpy(&hardware[0], &metadata[114], 32); // hardware
   memcpy(&n_packets, &metadata[146], sizeof(uint8_t)); // n packets
-  memcpy(&time_interval, &metadata[147], sizeof(uint16_t)); // n packets
-  memcpy(&time_offset, &metadata[149], sizeof(uint16_t)); // n packets
+  memcpy(&time_interval, &metadata[147], sizeof(uint16_t)); // time interval
+  memcpy(&time_offset, &metadata[149], sizeof(uint16_t)); // time offset
 
-  Serial.println("Device name: " + String(my_device_name));
-  Serial.println("Location: " + String(my_lat) + ", " + String(my_lon));
-  Serial.println("Measurement: " + String(my_type) + ", " + String(my_unit));
-  Serial.println("Measurement Min, Res: " + String(my_min_value) + ", " + String(my_resolution));
+  //Print some of the key values
+  Serial.println("Device name: " + String(device_name));
+  Serial.println("Location: " + String(lat) + ", " + String(lon));
+  Serial.println("Measurement: " + String(type) + ", " + String(unit));
+  Serial.println("Measurement Min, Res: " + String(min_value) + ", " + String(resolution));
   Serial.println("Time interval, offset: " + String(time_interval) + ", " + String(time_offset));
-  Serial.println("Next packets must be from: " + series_id);
-  
+
   //check if we've seen this sensor's data before, and get its index in the series array.
   //If we've never seen it before, we'll use the next available index - 
   // which is equal to the number of series we've received so far
@@ -248,10 +249,16 @@ void decodeMetaData(const uint8_t *metadata, String series_id) {
     series_index = n_series_received;
   }
   //Use all the variables above to create a dataSeries struct
-  float data_array[MAX_RECORDS] = {0.0}; //the measurements in this dataSeries are all 0 for now. 
-  all_data_series[series_index] = {series_id, my_device_name, my_lat, my_lon, 
-    {my_min_value, my_resolution, my_type, my_unit, my_hardware}, data_array, 0};
+  all_data_series[series_index].series_id = series_id;
+  all_data_series[series_index].device_name = device_name;
+  all_data_series[series_index].lat = lat;
+  all_data_series[series_index].lon = lon;
+  all_data_series[series_index].time_interval = time_interval;
+  //last measurement time is the receipt time (last_time_stamp) minus the time offset.
+  all_data_series[series_index].last_measurement_time = last_time_stamp - time_offset;
+  all_data_series[series_index].m = {min_value, resolution, type, unit, hardware};
   Serial.println();
+
 }
 
 void save_series_in_series_array(int series_index, const uint8_t *data, int data_len) {
@@ -313,31 +320,29 @@ float twobyte_to_float(TwoByte s, measurement m) {
 
 /////////////////////////////////// Lower level wifi post methods //////////////////////////////
 
-void post_all_records(dataSeries r) {
+void post_all_records(dataSeries* r) {
   /*
-   * Convert the array of input measurements into a json-style list. 
-   * Saves it into the batch_post buffer.
+   * Iterates through all records in the series, and posts each one, one by one. 
    */
-   
-  //set the first char to open bracket
-  memset(batch_post, '[', 1);
-  //set the second char to terminator, so concatenation starts from here instead of adding on to the end of the previous
-  memset(&batch_post[1], '\0', 1);
-  String post = create_post_string(r.device_name, r.sensor_data[0], r.m, r.lat, r.lon) + ",";
-  strncat(batch_post, post.c_str(), strlen(post.c_str())+1);//one extra for the null terminator. may have to memset this ourselves
-  for (int i = 1; i < 2; i++) { //should be to r.n_records_recd
-    String post = create_post_string(r.device_name, r.sensor_data[i], r.m, r.lat, r.lon);
-    if (i < 2-1) {
-      post = post + ",";
+  Serial.println("Posting records...");
+  //the most recent measurement was made at last_measurement time; we already calculated its value when receiving
+  unsigned long post_time = r->last_measurement_time;
+  int n = 10; //just for the demo. should be r.n_records_recd
+  for (int i = 0; i < n; i++) { 
+    String post = create_post_string(r->device_name, r->sensor_data[i], &(r->m), r->lat, r->lon, post_time);
+    int response = http.POST(post);
+    if (response != 200) {
+      Serial.print("HTTP Post error "); Serial.println(response);
     }
-    strncat(batch_post, post.c_str(), strlen(post.c_str()));
+    //the next measurement was taken BEFORE this one, so decrease the time by the time interval
+    post_time = post_time - r->time_interval;
+    Serial.println(post_time);
+    Serial.println(r->time_interval);
+    Serial.println(post_time - r->time_interval);
   }
-  strcat(batch_post, "]");
-  Serial.println("Built post string.");
-  Serial.println(batch_post);
 }
 
-String create_post_string(String device_name, float value, Measurement m, float lat, float lon) {
+String create_post_string(String device_name, float value, Measurement* m, float lat, float lon, unsigned long timestamp) {
   /*
    * Convert the input measurement to a json-formatted string. Pass in the device name, the measured
    * value, the measurement type, and the coordinates. 
@@ -345,18 +350,19 @@ String create_post_string(String device_name, float value, Measurement m, float 
    * For non-mandatory fields:
    *  For lat/lon, if you pass in the INVALID_LOCATION value,  it won't include the coordinates
    *  If the Measurement's hardware_name parameter is an empty string, it won't be included
-   *  Time is not included. 
    * 
    */
-  String json = "{\"key\":\"" + device_name + "\",\"measurement_name\":\"" + m.type;
-  json = json + "\",\"unit\":\"" + m.unit + "\",\"value\":\"" + String(value);
+  String json = "{\"key\":\"" + device_name + "\",\"measurement_name\":\"" + m->type;
+  json = json + "\",\"unit\":\"" + m->unit + "\",\"value\":" + String(value);
 
+  json = json + ",\"timestamp\":\"" + String(timestamp) + "\"";
   if (lat != INVALID_LOCATION && lon != INVALID_LOCATION) {
-    json = json + "\",\"lat\":\"" + String(lat) + "\",\"lon\":\"" + String(lon);    
-  } if (!m.hardware_name.equals("")) {
-    json = json + "\",\"hardware\":\"" + m.hardware_name;
+    json = json + ",\"lat\":" + String(lat) + ",\"lon\":" + String(lon);    
   }
-  json = json + "\"}";
+  if (!m->hardware_name.equals("")) {
+    json = json + ",\"hardware\":\"" + m->hardware_name + "\"";
+  }
+  json = json + "}";
   return json;
 }
 
@@ -368,9 +374,8 @@ void setUpESPNow() {
    * configures the device as an Access Point, and prints out its mac address. 
    * 
    */
-  WiFi.disconnect(); //TODO: make sure this works after connecting to wifi, may need to move after configAP
+  WiFi.disconnect();
   WiFi.mode(WIFI_AP);
-  //configDeviceAP();
   Serial.print("AP MAC: "); Serial.println(WiFi.softAPmacAddress());
   if (esp_now_init() == ESP_OK) {
     Serial.println("ESPNow Init Success");
@@ -381,7 +386,6 @@ void setUpESPNow() {
   esp_now_register_recv_cb(OnDataRecv); //OnDataRecv will get called whenever we receive data. 
 }
 
-
 bool connect_to_server() {
   /*
    * Connect to the wifi and the server. Return true if successful. 
@@ -391,7 +395,8 @@ bool connect_to_server() {
   WiFi.begin(ssid, password);
   int counter = 0;
   while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
+    delay(1000);
+    WiFi.begin(ssid, password);
     Serial.println("Connecting to WiFi..");
     counter++;
     if (counter > MAX_WIFI_RETRIES) {
@@ -404,4 +409,30 @@ bool connect_to_server() {
   http.addHeader("Content-Type", "application/json"); //all our POST requests will be in json format!
   Serial.println("Connected to server.");
   return true;
+}
+
+void updateRealTime() {
+  /*
+   * Connects to the Wifi network to fetch the current time, in epoch time (seconds since 1970). 
+   * Saves in the global variable last_time_stamp.
+   */
+  WiFi.mode(WIFI_STA);
+  int counter = 0;
+  while (WiFi.status() != WL_CONNECTED) {
+    WiFi.begin(ssid, password);
+    counter ++;
+    delay(1000);
+  }
+  Serial.println("Connected.");
+  http.begin(ntpServer);
+  configTime(0, 0, ntpServer);
+  time_t now;
+  struct tm timeinfo;
+  if (!getLocalTime(&timeinfo)) {
+    Serial.println("Failed to obtain time");
+  } else {
+    time(&now);
+    last_time_stamp = now;
+  }
+  http.end();
 }
