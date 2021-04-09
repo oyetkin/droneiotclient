@@ -11,7 +11,7 @@
  * Source: https://github.com/oyetkin/droneiotclient
  * 
  * Credit for some portions of code: 
- *    ESP-Now Demo by Arvind Ravulavaru <https://github.com/arvindr21>
+ *    Sending data: ESP-Now Demo by Arvind Ravulavaru <https://github.com/arvindr21>
  *    Getting the time: https://randomnerdtutorials.com/epoch-unix-time-esp32-arduino/
  */
 #include <Wire.h>  
@@ -28,12 +28,12 @@
 
 // User should change these settings as needed
 #define TIME_TO_SLEEP  20 //How long the device sleeps in between measurements
-const char* ssid = "2firestar"; //your wifi network name
-const char* password =  "sachin12"; //your wifi network password
-const char* server = "https://api.is-conic.com/api/v0p1/sensor/batch"; //the URL to post to your server
-const String device_name = "arjun_2"; //name of your device
-float lat = 34.194057; //the latitude of the location of the device
-float lon = -118.295158; //the latitude of the location of the device
+const char* ssid = "<NETWORK>"; //your wifi network name
+const char* password =  "<PWD>"; //your wifi network password
+const char* server = "<SERVER>"; //the URL to post to your server
+const String device_name = "<DEVICE NAME>"; //name of your device
+float lat = <YOUR LAT>; //the latitude of the location of the device
+float lon = <YOUR LON>; //the latitude of the location of the device
 
 //more advanced user settings
 #define MAX_WIFI_RETRIES 30 //number of times to try connecting to wifi before giving up

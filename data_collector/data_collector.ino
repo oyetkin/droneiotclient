@@ -6,8 +6,6 @@
  * Author: Arjun Tambe, Analytical Mechanical Associates
  * Source: https://github.com/oyetkin/droneiotclient
  * 
- * Credit for some portions of code: 
- *    ESP-Now Demo by Arvind Ravulavaru <https://github.com/arvindr21>
 */
 
 #include <esp_now.h>
@@ -16,9 +14,9 @@
 #include <time.h>
 
 //Edit these!
-const char* ssid = "2firestar"; //Name of your wifi network
-const char* password =  "sachin12"; //Password for your wifi network
-const char* server = "https://api.is-conic.com/api/v0p1/sensor"; //URL for your server
+const char* ssid = "<NETWORK>"; //Name of your wifi network
+const char* password =  "<PWD>"; //Password for your wifi network
+const char* server = "<SERVER>"; //URL for your server
 
 //Pinouts and configurable
 #define TRIGGER_PIN GPIO_NUM_16 //for the trigger button
@@ -327,8 +325,8 @@ void post_all_records(dataSeries* r) {
   Serial.println("Posting records...");
   //the most recent measurement was made at last_measurement time; we already calculated its value when receiving
   unsigned long post_time = r->last_measurement_time;
-  int n = 10; //just for the demo. should be r.n_records_recd
-  for (int i = 0; i < n; i++) { 
+  //iterate through each record and post it individually
+  for (int i = 0; i < r.n_records_recd; i++) { 
     String post = create_post_string(r->device_name, r->sensor_data[i], &(r->m), r->lat, r->lon, post_time);
     int response = http.POST(post);
     if (response != 200) {
@@ -336,9 +334,6 @@ void post_all_records(dataSeries* r) {
     }
     //the next measurement was taken BEFORE this one, so decrease the time by the time interval
     post_time = post_time - r->time_interval;
-    Serial.println(post_time);
-    Serial.println(r->time_interval);
-    Serial.println(post_time - r->time_interval);
   }
 }
 
