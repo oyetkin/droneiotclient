@@ -21,6 +21,8 @@
 #include "SH1106Wire.h"
 #include <time.h>
 #include <esp_now.h>
+#include <esp_clk.h>
+#include <soc/rtc.h>
 #include "driver/adc.h"
 #include "esp_wifi.h"
 
@@ -64,6 +66,7 @@ float lon = -117.095660; //the latitude of the location of the device
 #define RECORD_SIZE 2 //n bytes in a single record
 #define PREAMBLE_LEN 2 //n bytes in the preamble for each packet
 #define uS_TO_S_FACTOR 1000000ULL  // Conversion factor for micro seconds to seconds
+#define CLOCK_RATE 150000 //Hz of the RTC clock. This is the default. Used to calculate time stuff. 
 
 /// Code for the data structure. This should be in the receiver too
 
@@ -120,11 +123,12 @@ uint8_t metadata[ESP_NOW_MAX_DATA_LEN];
 
 //Keeps track of the state of the device. 
 RTC_DATA_ATTR bool device_mode_wifi = 0; //1 for wifi, 0 for trigger
-RTC_DATA_ATTR int n_cycles_recorded = 0;
+RTC_DATA_ATTR int n_cycles_recorded = 0; //number of times you've recorded values from the sensors
+RTC_DATA_ATTR int last_rtc_time = 0; //last reading of the rtc; update when you go to sleep. 
 
-//for ESP Now - MAC address, channel, encrypt - set MAC address to device or to broadcast address
-//esp_now_peer_info_t slave = {{0xFF, 0xFF,0xFF,0xFF,0xFF,0xFF}, ESP_NOW_CHANNEL, 0};
-esp_now_peer_info_t slave = {{0x9C, 0x9C, 0x1F, 0xC9, 0x50, 0x61}, ESP_NOW_CHANNEL, 0};
+//for ESP Now - MAC address, channel, encrypt - set MAC address to either device or to broadcast address
+esp_now_peer_info_t listener = {{0xFF, 0xFF,0xFF,0xFF,0xFF,0xFF}, ESP_NOW_CHANNEL, 0};
+//esp_now_peer_info_t listener = {{0x9C, 0x9C, 0x1F, 0xC9, 0x50, 0x61}, ESP_NOW_CHANNEL, 0};
 
 
 //////////////////////// Now for the actual code! /////////////////////////
@@ -158,31 +162,25 @@ void setup() {
     mode_select();
   } else if (device_mode_wifi) {
     if (wakeup_reason == ESP_SLEEP_WAKEUP_EXT1) { //Either the IR Trigger,  or the Trigger Button
-      if (!read_sensors()) {                      //If we fail to read the sensors, don't bother posting, and go to sleep instead.
+      if (!read_sensors()) {                      //If we fail to read the sensors, don't post and sleep instead.
         go_to_sleep();                            //Sleeping exits this code block. 
       }
-      post_sensors();                             //If desired, you can use the bool this returns to check if posting was successful.
+      post_sensors();  //If desired, you can use the bool this returns to check if posting was successful.
       display_graph();
     } else if (wakeup_reason == ESP_SLEEP_WAKEUP_TIMER) { //The timer
-      if (!read_sensors()) {
-        go_to_sleep();
-      }
+      if (!read_sensors()) { go_to_sleep(); }
       post_sensors();
     } else {                                      // Device booted up for the first time
       show_wakeup();
-      if (!read_sensors()) {
-        go_to_sleep();
-      }
+      if (!read_sensors()) { go_to_sleep(); }
       post_sensors();
     }
   } else {
     if (wakeup_reason == ESP_SLEEP_WAKEUP_EXT1) { //Either the IR Trigger,  or the Trigger Button
-      ESPNowToMac();
+      ESPNowBroadcast();
       display_graph();
     } else if (wakeup_reason == ESP_SLEEP_WAKEUP_TIMER) { //The timer
-      if (!read_sensors()) {
-        go_to_sleep();
-      }
+      if (!read_sensors()) { go_to_sleep(); }
     } else {                                      // Device booted up for the first time
       show_wakeup();
       read_sensors();
@@ -202,9 +200,7 @@ void mode_select() {
   pinMode(DEVICE_MODE_SELECT_PIN, INPUT);
 
   init_display();
-  display.clear();
-  display.drawString(0, 12, "Mode: " + mode_to_str(device_mode_wifi));
-  display.display();
+  display_mode();
   unsigned long start_time = millis();
   unsigned long debounce = millis();
   while (millis() - start_time <= MODE_SELECT_LEN) {
@@ -212,9 +208,7 @@ void mode_select() {
     if (digitalRead(DEVICE_MODE_SELECT_PIN) && millis() - debounce >= DEBOUNCE_TIME) {
       device_mode_wifi = 1 - device_mode_wifi;
       Serial.println("Button pressed. Mode is: " + mode_to_str(device_mode_wifi));
-      display.clear();
-      display.drawString(0, 12, "Mode: " + mode_to_str(device_mode_wifi));
-      display.display();
+      display_mode();
       start_time = millis();
       debounce = start_time;
     }
@@ -222,7 +216,6 @@ void mode_select() {
   //turn off the OLED display
   display.displayOff();
 }
-
 
 bool read_sensors() {
   /*
@@ -252,6 +245,9 @@ bool read_sensors() {
   Serial.println("Temperature (C): " + String(curr_temp));
   Serial.println("Pressure (Pa): " + String(curr_pres));
 
+  //update the last RTC reading so we'll know how long it's been since last measurement. used when sending ESP-Now data.
+  last_rtc_time = rtc_time_get();
+  //update number of measurements taken
   n_cycles_recorded ++;
   return true;
 }
@@ -288,14 +284,11 @@ bool post_sensors() {
 
 void ESPNowBroadcast() {
   /*
-   * Send ESP Now data as a broadcast. This doesn't check that a device is ready
-   * to listen, which makes it faster and more power efficient. 
-   * 
-   * The channel should be 0 for this to work correctly.  
+   * Send ESP Now data as a broadcast. This has the advantage that we 
+   * don't need to know the receiving device's MAC address beforehand. 
    */
   InitESPNow();
-  esp_now_add_peer(&slave);
-  
+  esp_now_add_peer(&listener);
   //Send each of the 3 data buffers.
   sendData(temp_data, temperature, 1);
   sendData(hum_data, humidity, 2);
@@ -306,25 +299,25 @@ void ESPNowToMac() {
   /*
    * Send ESP Now data to a specific, hard-coded MAC address.  This avoids the
    * time/power required to scan all wifi networks, but still checks that a device
-   * is ready to listen. 
+   * is ready to listen, and can also listen for an ACK signal from the listener. 
    * 
-   * Currently does not retry or handle pairing failure! 
+   * Does not retry or handle pairing failure! 
    */
   InitESPNow();
   esp_now_register_send_cb(OnDataSent); //optional, tells you the status of each packet sent.
-  if (slave.channel == ESP_NOW_CHANNEL) { //check for correct channel; add peer
-    Serial.print("Slave Status: ");
-    esp_err_t addStatus = esp_now_add_peer(&slave);
+  if (listener.channel == ESP_NOW_CHANNEL) { //check for correct channel; add peer
+    Serial.print("Listener Status: ");
+    esp_err_t addStatus = esp_now_add_peer(&listener);
     if (debug_ESP_error(addStatus)) { //Check if adding was successful
       //Send each of the 3 data buffers
       sendData(temp_data, temperature, 1);
       sendData(hum_data, humidity, 2);
       sendData(pres_data, pressure, 3);
     } else {
-      Serial.println("Slave pair failed!");
+      Serial.println("Listener pair failed!");
     }
   } else {
-    Serial.println("Non matching slave channel!");
+    Serial.println("Non matching listener channel!");
   }
 }
 
@@ -360,7 +353,7 @@ void sendData(uint8_t* a, Measurement m, uint16_t index) {
   //First, send the metadata.
   Serial.println("Sending metadata");
   makeMetaData(m, index, MAX_RECORDS*RECORD_SIZE);
-  esp_now_send(slave.peer_addr, metadata, ESP_NOW_MAX_DATA_LEN);
+  esp_now_send(listener.peer_addr, metadata, ESP_NOW_MAX_DATA_LEN);
 
   //Continue until you've sent all the bytes in the data buffer
   int total_sent = 0; //bytes of how much data you've sent so far
@@ -374,7 +367,7 @@ void sendData(uint8_t* a, Measurement m, uint16_t index) {
     uint8_t to_send[ESP_NOW_MAX_DATA_LEN] = {0};
     memset(&to_send[0], index, sizeof(uint8_t)); // index number of the data
     memcpy(&to_send[PREAMBLE_LEN], &a[total_sent], data_len);
-    esp_now_send(slave.peer_addr, &to_send[0], data_len + PREAMBLE_LEN); //amount to send is the amount of data plus the preamble!
+    esp_now_send(listener.peer_addr, &to_send[0], data_len + PREAMBLE_LEN); //amount to send is the amount of data plus the preamble!
 
     //To help see what we're sending, print out the first data point (after the preamble)
     TwoByte s = {to_send[2], to_send[3]};
@@ -388,6 +381,7 @@ void sendData(uint8_t* a, Measurement m, uint16_t index) {
 uint8_t* makeMetaData(Measurement m, uint16_t index, int data_len) {
   /*
    * Send a metadata packet that includes the following info in the following order:
+   *    2-byte ID preamble (2 byte int)
    *    Sensor name (32 chars)
    *    Lat and lon (two 4-byte floats)
    *    Measurement name (32 chars)
@@ -395,6 +389,8 @@ uint8_t* makeMetaData(Measurement m, uint16_t index, int data_len) {
    *    Resolution (4-byte float)
    *    Hardware name (32 chars)
    *    N packets of data (2-byte int)
+   *    Number of seconds between each measurement (2-byte int)
+   *    Number of seconds since last reading (2-byte int)
    *  It accomplishes this by memcpy'ing each piece of information in the respective
    *  positions. The receiver must contain code to read this metadata to function properly.
    *  
@@ -412,6 +408,8 @@ uint8_t* makeMetaData(Measurement m, uint16_t index, int data_len) {
   const char* hardware_name_c = m.hardware_name.c_str();
   //N packets is the total N bytes to send, divided by the bytes in each packet. Round up by adding 1 if the division isn't even.
   uint8_t n_packets = data_len/ESP_NOW_MAX_DATA_LEN + (data_len%ESP_NOW_MAX_DATA_LEN != 0);
+  uint16_t time_interval = TIME_TO_SLEEP;
+  uint16_t time_offset = getTimeSinceLast();
   
   int byte_pos = 0; //As we memcpy stuff into the metadata, increment this to see where the next field is
 
@@ -439,6 +437,12 @@ uint8_t* makeMetaData(Measurement m, uint16_t index, int data_len) {
   set_null_terminated_metadata_string(byte_pos, hardware_name_c, 32);
   byte_pos += 32;
   memcpy(&metadata[byte_pos], &n_packets, sizeof(uint8_t)); // n packets
+  byte_pos += sizeof(uint8_t);
+  memcpy(&metadata[byte_pos], &time_interval, sizeof(uint16_t)); // time interval
+  byte_pos += sizeof(uint16_t);
+  memcpy(&metadata[byte_pos], &time_offset, sizeof(uint16_t)); // time offset
+  byte_pos += sizeof(uint16_t);
+
   
   Serial.println("Successfully created metadata");
 }
@@ -549,7 +553,7 @@ float last_float_from_data(uint8_t* a, measurement m) {
    * Go into the specified array which is made up of TwoBytes, 
    * and return the first element in float format.
    * 
-   * example: float_from_short_array(hum_data, humidity)
+   * example: last_float_from_data(hum_data, humidity)
    */
    TwoByte s = {a[0], a[1]};
    return twobyte_to_float(s, m);
@@ -558,8 +562,8 @@ float last_float_from_data(uint8_t* a, measurement m) {
 float twobyte_to_float(TwoByte s, measurement m) {
   /*
    * Given a measurement type and a twoByte, convert the twoByte we get
-   * from the internal representation of data to a float used
-   * for display. 
+   * from the internal representation of data, to a float. The conversion 
+   * depends on the measurement type. 
    */
    uint16_t v = (s.high << 8) + s.low;
    float x = v*m.resolution + m.min_value;
@@ -576,6 +580,14 @@ void set_null_terminated_metadata_string(int byte_pos, const char* str, int max_
   memcpy(&metadata[byte_pos], str, min((size_t) max_str_len, strlen(str)+1));  
   //then set the last char to the null terminator, in case the string was longer than the number of characters
   memset(&metadata[byte_pos + max_str_len-1], '\0', 1);
+}
+
+int getTimeSinceLast() {
+  /*
+   * Get the time since the last sleep. last_rtc_time should be updated 
+   * when the sensor values are recorded 
+   */
+  return (rtc_time_get() - last_rtc_time) / CLOCK_RATE;
 }
 
 /////////////////////////// Regular wifi methods /////////////////////////////
@@ -776,6 +788,15 @@ void init_display() {
   display.flipScreenVertically();
   display.setTextAlignment(TEXT_ALIGN_LEFT);
   display.setFont(ArialMT_Plain_16);
+}
+
+void display_mode() {
+  /*
+   * Display the current mode on the OLED display
+   */
+  display.clear();
+  display.drawString(0, 12, "Mode: " + mode_to_str(device_mode_wifi));
+  display.display();
 }
 
 
